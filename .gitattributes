@@ -1,0 +1,5 @@
+# Unset the text attribute on all files.
+# Git will treat all files as non-text when doing line-ending-normalization, disabling it completely.
+# Other text-specific git commands (e.g. diff) are unaffected. **Only line ending normalization is changed.**
+# https://stackoverflow.com/a/64633700
+* -text

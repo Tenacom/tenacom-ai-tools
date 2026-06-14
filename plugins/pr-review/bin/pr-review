@@ -1,0 +1,356 @@
+#!/usr/bin/env bash
+# pr-review — prepare a GitHub PR and review it in a sandboxed Claude session.
+# Usage:  pr-review <pr_id> [<register>]
+#         pr-review prepare <pr_id>
+#
+#   prepare       prepare the working tree and stop — no review session.
+#                 For when you want to inspect the tree first.
+#                 Review later with `pr-review <pr_id>`, or with /pr-review:run
+#                 from a Claude session standing on the pr/<id> branch.
+#   <pr_id>       the pull request number
+#   [<register>]  optional review register forwarded to /pr-review:run
+#                 can be "junior" (the default) or "expert"
+#
+# Posting the curated REVIEW.md back to GitHub is a separate tool, `pr-finalize`
+# (a self-contained Python program): this script prepares and reviews; that one
+# posts. They meet only at the .pr-review/state.json file contract. After a
+# finalize, pr-finalize leaves a `.pr-review-run/posted.md` marker — this script
+# honours it below, refusing to relaunch a review of an already-posted preparation.
+#
+# Self-contained — the whole preparation lives in this file, so it can be aliased
+# or copied into a bin directory freely; it never relies on its own location.
+# Portable Ubuntu/WSL bash, no other runtime. Requires git, and on the prepare
+# path gh (authenticated, with a default repo set via `gh repo set-default`);
+# claude on PATH unless prepare is specified.
+#
+# What it does, in order: require the repository root (REVIEW.md and its relative
+# anchors live there). If REVIEW.md already exists for this PR on the prepared
+# branch (snapshot included), skip preparation — re-prepping could move HEAD and
+# orphan the file's anchors — and go straight to the review session. Otherwise
+# prepare: read gh's default repo as the canonical/upstream truth, match it to a
+# local remote by URL (renamed remotes are fine), fetch, capture the PR snapshot
+# (PR title/body/metadata and every referenced issue, plus — post-rebase — the
+# canonical diff) into .pr-review/, (re)create the local base branch, use
+# `gh pr checkout` to make a clean pr/<id> (works for fork PRs with no per-fork
+# remote — gh points the branch's tracking config at the fork directly), and
+# rebase onto the base if behind. If a rebase was applied, ask on the terminal
+# and force-push the rebased branch (--force-with-lease: fails rather than
+# clobber anything pushed to the PR meanwhile). The push is part of the
+# preparation — review links must match the PR head on GitHub, so no push means
+# no review; declining, or a failed push, fails the preparation. Idempotent: a
+# re-run finds no rebase needed and asks nothing. Finally launch `claude`
+# interactively, sandbox enabled for this session only (via --settings;
+# .claude/settings.local.json is never touched), with "/pr-review:run [register]"
+# as the initial prompt. Preparation runs OUTSIDE the sandbox (it needs network
+# and .git/config writes); the review runs INSIDE it with ZERO egress — all its
+# GitHub context comes from the snapshot, so the sandbox needs no GitHub hole.
+# This script is that boundary.
+#
+# stdout: on the prepare path, a single JSON object describing the prepared state.
+# stderr: progress, the force-push prompt, and all errors. Exits non-zero on any
+# failure.
+
+set -euo pipefail
+
+log() { printf '  %s\n' "$*" >&2; }
+die() { printf 'pr-review: %s\n' "$*" >&2; exit 1; }
+
+SANDBOX_SETTINGS='{
+  "sandbox": {
+    "enabled": true,
+    "autoAllowBashIfSandboxed": true,
+    "allowUnsandboxedCommands": false
+  },
+  "permissions": {
+    "allow": [ "Read", "Task", "Write", "Bash(ugrep:*)", "Bash(bfs:*)", "Bash(git rev-parse:*)", "Bash(git merge-base:*)" ],
+    "deny": [ "WebFetch", "WebSearch", "Bash(gh:*)", "Bash(php:*)", "Bash(node:*)", "Bash(npm:*)", "Bash(npx:*)" ]
+  }
+}'
+
+usage='usage: pr-review [prepare] <pr_id> [<register>]'
+
+# 1. Arguments.
+prep_only=""
+pr_id=""
+register=""
+for arg in "$@"; do
+  case "$arg" in
+    prepare) prep_only=1 ;;
+    -*) die "unknown option: $arg ($usage)" ;;
+    *)
+      if [[ -z "$pr_id" ]]; then pr_id="$arg"
+      elif [[ -z "$register" ]]; then register="$arg"
+      else die "too many arguments ($usage)"
+      fi ;;
+  esac
+done
+[[ -n "$pr_id" ]] || die "$usage"
+[[ "$pr_id" =~ ^[0-9]+$ ]] || die "<pr_id> must be a PR number, got: $pr_id"
+if [[ -n "$prep_only" && -n "$register" ]]; then
+  die "prepare takes no register; the register belongs to the review."
+fi
+
+# 2. Command availability and GitHub CLI setup
+command -v git >/dev/null || die "git is not installed. Install it, then try again."
+if [[ -z "$prep_only" ]]; then
+  command -v claude >/dev/null || die "claude (Claude Code CLI) is not installed or not on PATH."
+fi
+
+# 3. Repo root only: REVIEW.md and its relative anchors live there, and the
+#    claude session must start there to pick up the repo's skills and rules.
+top="$(git rev-parse --show-toplevel 2>/dev/null)" || die "not a git repository."
+[[ "$top" == "$(pwd -P)" ]] || die "run this from the repository root: $top"
+
+# The run directory (born in preparation, below) outlives the review. pr-finalize
+# drops a posted.md marker in it on a successful post; the relaunch guard in
+# section 4 reads that marker, so the path is defined here, once.
+run_dir="$top/.pr-review-run"
+
+launch_review() {
+  local prompt="/pr-review:run"
+  if [[ -n "$register" ]]; then prompt="/pr-review:run $register"; fi
+  log "launching sandboxed review session: claude \"$prompt\""
+  # Effort is pinned here, not in skill frontmatter: the env var beats every
+  # other scope (user settings, /effort residue, frontmatter), reaches
+  # subagents, and "max" is session-only everywhere else anyway.
+  exec env CLAUDE_CODE_EFFORT_LEVEL=max claude --settings "$SANDBOX_SETTINGS" "$prompt"
+}
+
+# 4. An existing REVIEW.md means a review of this PR is in flight (curation, or
+#    stacking another run): skip preparation, but refuse a stale file first.
+if [[ -f REVIEW.md ]]; then
+  file_pr="$(sed -n 's/^pr:[[:space:]]*//p' REVIEW.md | head -n 1)"
+  [[ "$file_pr" == "$pr_id" ]] \
+    || die "REVIEW.md is for PR #${file_pr:-?}, not #$pr_id. Finish (or delete) that review first."
+  branch="$(git rev-parse --abbrev-ref HEAD)"
+  [[ "$branch" == "pr/$pr_id" ]] \
+    || die "REVIEW.md matches PR #$pr_id but the checked-out branch is '$branch', not 'pr/$pr_id'. Check out the right branch, or delete REVIEW.md and re-run to re-prepare."
+  state_file="$top/.pr-review/state.json"
+  state_pr="$( { sed -n 's/^[[:space:]]*"prId":[[:space:]]*"\([0-9]*\)".*$/\1/p' "$state_file" | head -n 1; } 2>/dev/null || true )"
+  [[ "$state_pr" == "$pr_id" ]] \
+    || die "REVIEW.md matches PR #$pr_id but the preparation snapshot ($state_file) is missing or for another PR — the review cannot run without it. Delete REVIEW.md and re-run to re-prepare."
+  if [[ -e "$run_dir/posted.md" ]]; then
+    die "PR #$pr_id was already finalized by pr-finalize ($run_dir/posted.md). REVIEW.md is kept for follow-up, but this preparation is closed — re-prepare (delete REVIEW.md, then pr-review $pr_id) to review the current head afresh."
+  fi
+  if [[ -n "$prep_only" ]]; then
+    log "REVIEW.md for PR #$pr_id found on branch pr/$pr_id — already prepared; nothing to do."
+    exit 0
+  fi
+  log "REVIEW.md for PR #$pr_id found on branch pr/$pr_id; skipping preparation."
+  launch_review
+fi
+
+# --- preparation --------------------------------------------------------------
+
+command -v gh >/dev/null || die "GitHub CLI is not installed. Install it (https://github.com/cli/cli#installation), then try again."
+
+gh auth status >/dev/null 2>&1 \
+  || die "GitHub CLI (gh) is installed but not signed in. Run 'gh auth login' and follow the prompts (docs: https://cli.github.com/manual/gh_auth_login), then try again."
+
+normalize_url() {            # any git URL -> lowercase host/owner/repo
+  local u="${1%.git}" host
+  if [[ "$u" =~ ^[^@]+@([^:]+):(.+)$ ]]; then
+    u="${BASH_REMATCH[1]}/${BASH_REMATCH[2]}"
+  elif [[ "$u" =~ ^[a-z]+://([^/]+)/(.+)$ ]]; then
+    host="${BASH_REMATCH[1]#*@}"; u="$host/${BASH_REMATCH[2]}"
+  fi
+  printf '%s' "${u,,}"
+}
+owner_repo() { printf '%s' "${1#*/}"; }   # host/owner/repo -> owner/repo
+
+find_remote_for() {          # arg: owner/repo  -> remote name on stdout, or return 1
+  local target="${1,,}" r
+  for r in $(git remote); do
+    [[ "$(owner_repo "$(normalize_url "$(git remote get-url "$r")")")" == "$target" ]] \
+      && { printf '%s' "$r"; return 0; }
+  done
+  return 1
+}
+
+# 5. Sanity: a clean tree is required; this script never touches your changes.
+[[ -z "$(git status --porcelain)" ]] || die "working tree is not clean. This command needs a clean working tree; deal with your uncommitted changes yourself, then run it again."
+
+# 6. Canonical repo = gh's default repo (also the repo gh resolves PRs against).
+default_nwo="$(NO_COLOR=1 gh repo set-default --view 2>/dev/null || true)"
+# `--view` prints an error sentence and still exits 0 when no default is set, so the
+# exit code is useless. A real answer is a single whitespace-free token containing a
+# slash; anything else (empty, or the error sentence) means "not set".
+if [[ -z "$default_nwo" || "$default_nwo" == *[[:space:]]* || "$default_nwo" != */* ]]; then
+  die "No default repository set. Run 'gh repo-set-default', select the upstream repository, then try again."
+fi
+t="${default_nwo%/}"; base_repo="${t##*/}"; t="${t%/*}"; base_owner="${t##*/}"
+base_key="${base_owner,,}/${base_repo,,}"
+
+# 7. Resolve the upstream remote by URL and fetch it (needed for the base branch).
+upstream="$(find_remote_for "$base_key")" \
+  || die "no local remote points at the default repo ($base_key)."
+log "upstream remote: $upstream ($base_key)"
+log "fetching $upstream …"
+git fetch "$upstream"
+
+# 8. Capture the PR snapshot for the review. The review runs sandboxed with NO
+#    network: everything it needs from GitHub is captured here, now, into
+#    .pr-review/ — and the review then sees the PR as of preparation, not
+#    whatever it mutates into later (the same determinism argument as the one
+#    canonical diff). At the repo root, NOT under .git/: Claude Code treats
+#    .git/ as a protected write path that prompts on every Write regardless of
+#    allow rules — and one convention for all review artifacts beats two. The
+#    artifacts survive between sessions, die with the clone, and are hidden
+#    from git status via .git/info/exclude (below) instead of by location.
+git_dir="$(git rev-parse --absolute-git-dir)"
+state_dir="$top/.pr-review"
+rm -rf "$state_dir"
+mkdir -p "$state_dir"
+
+# The review's run directory dies and is reborn here too: subagent reports
+# (r<run>-a<agent>.md, r<run>-v<n>.md) persist across runs of one preparation
+# for post-mortem, and are wiped on re-prep — their line numbers die with the
+# tree they were measured against. Written only by the review; cleared only here.
+rm -rf "$run_dir"
+mkdir -p "$run_dir"
+
+# Hide every review artifact from git status: the two directories and the
+# review file itself (REVIEW.md must never be committed by accident, and the
+# second run must find a clean repo). Per-clone, idempotent.
+mkdir -p "$git_dir/info"
+for excl in '.pr-review/' '.pr-review-run/' 'REVIEW.md'; do
+  grep -qxF "$excl" "$git_dir/info/exclude" 2>/dev/null \
+    || printf '%s\n' "$excl" >> "$git_dir/info/exclude"
+done
+
+log "capturing PR #$pr_id metadata …"
+gh pr view "$pr_id" --json number,title,body,author,state,url,baseRefName,closingIssuesReferences \
+  > "$state_dir/pr.json" \
+  || die "gh pr view $pr_id failed (bad PR id, or no access?)."
+
+# 9. Scalars the preparation itself needs — a separate, TSV-shaped read, so the
+#    snapshot above stays verbatim gh output and this script never parses
+#    arbitrary title/body text.
+pr_tsv="$(
+  gh pr view "$pr_id" --json baseRefName,isCrossRepository,author,state,url,headRefOid \
+    --jq '[.baseRefName,(.isCrossRepository|tostring),.author.login,.state,.url,.headRefOid] | @tsv'
+)" || die "gh pr view $pr_id failed (bad PR id, or no access?)."
+IFS=$'\t' read -r base_ref cross_repo author state url head_oid <<<"$pr_tsv"
+[[ -n "$base_ref" ]] || die "could not read PR #$pr_id metadata."
+[[ "$state" == "OPEN" ]] || log "! PR #$pr_id is $state; its head branch may no longer exist on the fork."
+
+# 10. Capture every issue the PR references: the Development-panel links
+#     (closingIssuesReferences) plus every bare #N in the title/body — extracted
+#     mechanically from pr.json ('#' passes through JSON encoding verbatim).
+#     Over-capture is harmless: the review judges relevance. The PR's own number
+#     is filtered out; a number that is not a fetchable issue is skipped.
+issue_nums="$(
+  {
+    grep -oE '"number":[0-9]+' "$state_dir/pr.json" | grep -oE '[0-9]+'
+    grep -oE '#[0-9]+' "$state_dir/pr.json" | tr -d '#'
+  } | sort -un | grep -vx "$pr_id" || true
+)"
+for n in $issue_nums; do
+  if gh issue view "$n" --json number,title,body,state,url > "$state_dir/issue-$n.json" 2>/dev/null; then
+    log "captured issue #$n"
+  else
+    rm -f "$state_dir/issue-$n.json"
+    log "! #$n is not a fetchable issue (a PR, or no access) — skipped"
+  fi
+done
+
+# 11. (Re)create the local base branch at the upstream base position.
+if [[ "$(git rev-parse --abbrev-ref HEAD)" == "$base_ref" ]]; then
+  git reset --hard "$upstream/$base_ref"
+else
+  git branch -f "$base_ref" "$upstream/$base_ref"
+fi
+git branch --set-upstream-to="$upstream/$base_ref" "$base_ref" >/dev/null 2>&1 || true
+
+# 12. (Re)create the local PR branch via gh. Check out the base and drop any previous
+#    pr/<id> first, so the checkout is a clean reset on re-runs. gh pr checkout fetches
+#    the PR head and configures tracking against the fork directly (no remote needed).
+local_pr="pr/$pr_id"
+git checkout "$base_ref" >/dev/null 2>&1
+if git show-ref --verify --quiet "refs/heads/$local_pr"; then
+  git branch -D "$local_pr" >/dev/null
+fi
+gh pr checkout "$pr_id" --branch "$local_pr"
+
+# 13. Rebase onto the base only if the PR is behind it.
+if git merge-base --is-ancestor "$base_ref" HEAD; then
+  log "$local_pr is already on top of $base_ref; no rebase needed."
+  rebased=false
+else
+  log "rebasing $local_pr onto $base_ref …"
+  if git rebase "$base_ref"; then
+    rebased=true
+  else
+    git rebase --abort || true
+    die "rebase of $local_pr onto $base_ref failed (conflicts). Aborted; tree restored to the un-rebased PR branch."
+  fi
+fi
+
+# 14. A rebase rewrote pr/<id>: the PR head on GitHub no longer matches the local
+#     one, and every link a review writes against the remote would lie. The push is
+#     part of the preparation — no push, no review. Idempotent: a re-run finds no
+#     rebase needed and asks nothing.
+force_pushed=false
+if [[ "$rebased" == true ]]; then
+  push_remote="$(git config "branch.$local_pr.remote" 2>/dev/null || true)"
+  push_ref="$(git config "branch.$local_pr.merge" 2>/dev/null || true)"
+  [[ -n "$push_remote" && -n "$push_ref" ]] \
+    || die "$local_pr was rebased but its push destination is missing from branch config. Not pushing — the PR is not ready to review."
+  if ! { : < /dev/tty; } 2>/dev/null; then
+    die "$local_pr was rebased and needs a force-push, which requires an interactive terminal to confirm. Run this from a shell."
+  fi
+  printf 'pr-review: %s was rebased. Force-push it to %s (%s)? [y/N] ' "$local_pr" "$push_remote" "$push_ref" > /dev/tty
+  answer=""
+  read -r answer < /dev/tty || true
+  [[ "$answer" == [yY]* ]] \
+    || die "force-push declined. $local_pr is rebased locally, but without the push a review's links would not match the PR on GitHub — not ready to review. Re-run when ready."
+  log "force-pushing $local_pr (lease: remote must still be at $head_oid) …"
+  git push --force-with-lease="$push_ref:$head_oid" "$push_remote" "HEAD:$push_ref" \
+    || die "force-push failed — most likely someone pushed to the PR after its metadata was read. Re-run to re-prepare on the new head."
+  force_pushed=true
+fi
+
+# 15. The canonical diff — computed here, once, post-rebase; every review agent
+#     reads this file and never re-derives it (a re-derivation with a different
+#     base or flags would silently change the review surface). Then the state
+#     marker, written LAST: its presence means the capture is complete and
+#     consistent — a failed preparation leaves no state.json, and the review
+#     refuses to run without one. `head` is the post-push truth: thanks to the
+#     force-push above, it is also the PR head on GitHub.
+git diff "$base_ref"..HEAD > "$state_dir/canonical.diff"
+git diff --name-only "$base_ref"..HEAD > "$state_dir/changed-files.txt"
+cat > "$state_dir/state.json" <<JSON
+{
+  "prId": "$pr_id",
+  "baseBranch": "$base_ref",
+  "baseSha": "$(git rev-parse "$base_ref")",
+  "head": "$(git rev-parse HEAD)",
+  "rebased": $rebased,
+  "forcePushed": $force_pushed,
+  "capturedAt": "$(date -u +%FT%TZ)"
+}
+JSON
+
+# 16. Emit the prepared state as JSON on stdout.
+cat <<JSON
+{
+  "prId": "$pr_id",
+  "author": "$author",
+  "state": "$state",
+  "baseBranch": "$base_ref",
+  "prBranch": "$local_pr",
+  "upstreamRemote": "$upstream",
+  "crossRepo": $cross_repo,
+  "rebased": $rebased,
+  "forcePushed": $force_pushed,
+  "artifacts": "$state_dir",
+  "url": "$url"
+}
+JSON
+
+# 17. Review, or stop here if prepare only.
+if [[ -n "$prep_only" ]]; then
+  log "$local_pr is prepared and checked out. Review with: pr-review $pr_id [register] — or run /pr-review:run from a Claude session on this branch."
+  exit 0
+fi
+launch_review

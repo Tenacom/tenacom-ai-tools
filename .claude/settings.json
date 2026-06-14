@@ -1,0 +1,15 @@
+{
+ "enabledMcpjsonServers": [
+    "github"
+  ],
+  "enableAllProjectMcpServers": true,
+  "permissions": {
+    "allow": [
+      "WebFetch",
+      "WebSearch",
+      "Read",
+      "Glob",
+      "Grep"
+    ]
+  }
+}

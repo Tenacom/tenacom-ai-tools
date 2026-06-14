@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "tenacom-ai-tools",
+  "owner": {
+    "name": "Riccardo De Agostini (@rdeago), Claude Opus 4.8, Claude Fable 5"
+  },
+  "metadata": {
+    "description": "Claude Code plugin marketplace for Tenacom AI tooling."
+  },
+  "plugins": [
+    {
+      "name": "pr-review",
+      "source": "./plugins/pr-review",
+      "description": "A complete system for AI-assisted GitHub pull request reviews.",
+      "author": {
+        "name": "Riccardo De Agostini (@rdeago), Claude Opus 4.8, Claude Fable 5"
+      },
+      "keywords": ["github", "pull-request", "review", "code-review"]
+    }
+  ]
+}

@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# install-shims — put `pr-review` and `pr-finalize` on the user's PATH.
+#
+# This plugin ships the two real scripts in its bin/ directory, which Claude Code
+# adds to the Bash tool's PATH while the plugin is enabled — but NOT to your
+# interactive shell's PATH, and `pr-review` must be typeable in a bare shell
+# before any session exists. This script bridges that gap.
+#
+# It is run three ways, all equivalent:
+#   - once at install, explicitly:  claude -p /pr-review:install-shims
+#   - on every session, by the SessionStart hook (refresh after an update)
+#   - by hand, if a link ever breaks: install-shims
+#
+# What it does, idempotently:
+#   1. Self-locates — the live plugin version's bin/ dir, even via a symlink.
+#   2. Copies the two scripts into a STABLE dir (~/.local/share/pr-review/bin),
+#      refreshing only when they differ (first run, or after a plugin update).
+#      The copies are independent of the version-pinned plugin cache, so a PATH
+#      entry can lag a version behind but can never dangle when an old cache
+#      version is garbage-collected (~7 days after an update).
+#   3. Points ~/.local/bin/<cmd> at the stable copy with a symlink — created if
+#      absent, repaired if it points elsewhere, and left untouched if a human
+#      put a real file there.
+#
+# Output goes to stderr only: stdout from a SessionStart hook is injected into
+# Claude's context, so this keeps it empty. Failures are non-fatal to a session.
+
+set -euo pipefail
+
+# 1. Self-locate. readlink -f canonicalises through the ~/.local/bin symlink (when
+#    run as a bare command) and through the cache path (when run by the hook via
+#    ${CLAUDE_PLUGIN_ROOT}); BASH_SOURCE[0] is robust where $0 is not. GNU
+#    coreutils — fine on the Ubuntu/WSL target.
+here="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+
+store="$HOME/.local/share/pr-review/bin"   # stable home for the on-PATH copies
+bindir="$HOME/.local/bin"                   # where the commands must be typeable
+cmds=(pr-review pr-finalize)
+
+mkdir -p "$store" "$bindir"
+
+changed=0
+for cmd in "${cmds[@]}"; do
+  src="$here/$cmd"
+  dst="$store/$cmd"
+
+  [[ -f "$src" ]] \
+    || { printf 'install-shims: %s is missing from the plugin bin (%s) — broken install?\n' "$cmd" "$here" >&2; exit 1; }
+
+  # 2. Refresh the stable copy only when it actually differs.
+  if [[ ! -f "$dst" ]] || ! cmp -s "$src" "$dst"; then
+    cp "$src" "$dst"
+    chmod +x "$dst"
+    changed=1
+  fi
+
+  # 3. Maintain the PATH symlink → stable copy. Never clobber a real file.
+  link="$bindir/$cmd"
+  if [[ -L "$link" ]]; then
+    [[ "$(readlink -f "$link")" == "$(readlink -f "$dst")" ]] \
+      || { ln -sfn "$dst" "$link"; changed=1; }
+  elif [[ ! -e "$link" ]]; then
+    ln -s "$dst" "$link"
+    changed=1
+  else
+    printf 'install-shims: %s exists and is not a symlink — leaving it as is.\n' "$link" >&2
+  fi
+done
+
+# A status line (stderr): visible to the human on the explicit `claude -p` run,
+# routed to the debug log (not Claude's context) under the hook.
+if [[ "$changed" -eq 1 ]]; then
+  printf 'install-shims: pr-review and pr-finalize are linked in %s.\n' "$bindir" >&2
+else
+  printf 'install-shims: already current; nothing to do.\n' >&2
+fi
+
+# The one thing this script cannot do: edit your interactive shell's PATH.
+case ":${PATH:-}:" in
+  *":$bindir:"*) : ;;
+  *) printf 'install-shims: note — %s is not on your PATH. Add it (a fresh login shell usually does on Ubuntu/WSL once the dir exists).\n' "$bindir" >&2 ;;
+esac

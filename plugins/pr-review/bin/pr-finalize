@@ -1,0 +1,517 @@
+#!/usr/bin/env python3
+"""pr-finalize — post a curated REVIEW.md to GitHub as one review object.
+
+Companion to the `pr-review` script. pr-review prepares a PR and runs the
+sandboxed review that writes REVIEW.md; a human curates it (checks the box on
+each finding worth posting); pr-finalize posts the result. It takes no
+arguments — the PR and the reviewed head come from the preparation snapshot
+(.pr-review/state.json), never from REVIEW.md's frontmatter. REVIEW.md's *body*
+is parsed for the curation state; the closed ### grammar makes that a machine's
+job, so no model sits in the posting path.
+
+Runs unsandboxed: it needs the network (a live head check and the POST) and
+reads local files plus gh. The only external tool is gh — already required by
+pr-review. JSON is built with the standard library, so there is no jq
+dependency (gh embeds jq for its own output for the same reason standalone jq
+can't be assumed present).
+
+Routing is by SECTION ORDINAL, not heading text. A human may relabel a heading,
+but the first three ## sections are Problems, Observations, Pre-existing, in
+that order, and the empty-sections rule keeps the mapping stable:
+
+  - sections 1 & 2: a located finding posts as an inline comment, and MUST land
+    in the diff or the single review object would 422. An out-of-diff finding
+    here is a misfiled pre-existing one or a stale anchor, and is refused — not
+    silently rerouted. A locationless finding folds into the PR-level body
+    under its (verbatim) heading label.
+  - section 3: every finding folds, carrying a blob permalink when it is located.
+
+The review's verdict follows from curation alone: with no checked finding it is
+posted as an APPROVE; with any checked finding — in any of the three sections,
+since the checkbox (not the section) is the blocking signal — it is a
+REQUEST_CHANGES. COMMENT is not used: GitHub drops a PR out of "review
+requested" the moment any review lands, regardless of event, so a non-committal
+COMMENT would only deny the author a next-step signal. GitHub also requires a
+body on a REQUEST_CHANGES; if every checked finding is an inline comment and no
+summary sits above the first section, the body would be empty and the post is
+refused (write a summary, then re-run) rather than faked.
+
+No inline comment is ever out-of-diff, so the all-or-nothing post is safe by
+construction. The hard refusals are a moved PR head, an already-posted
+preparation, and a change-requesting review with an empty body.
+
+On success REVIEW.md is kept — unchecked findings survive for a follow-up — and
+a posted.md marker in the run directory closes the preparation, refusing a
+second post here and a re-run from pr-review. Re-prepare to reopen.
+
+Usage:  pr-finalize            post the prepared PR
+        pr-finalize --dry-run  parse, route and print the payload; post nothing
+"""
+
+from __future__ import annotations
+
+import json
+import re
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+from typing import NoReturn
+
+PROG = "pr-finalize"
+STATE_DIR = Path(".pr-review")
+RUN_DIR = Path(".pr-review-run")
+REVIEW = Path("REVIEW.md")
+POSTED_MD = RUN_DIR / "posted.md"
+POSTED_JSON = RUN_DIR / "posted.json"
+
+HEADING = re.compile(r"^#{1,6}\s")
+LINK = re.compile(r"\]\(\./([^)#]+)#(\d+)\)")  # target: ](./path#start)
+END_L = re.compile(r"-L(\d+)\]")               # range end in the link TEXT
+CHECKBOX = re.compile(r"^###\s+\[([ xX])\]")
+
+
+def die(msg: str) -> NoReturn:
+    print(f"{PROG}: {msg}", file=sys.stderr)
+    raise SystemExit(1)
+
+
+# --- shelling out to git/gh ---------------------------------------------------
+
+def _run(*args: str, stdin: str | None = None) -> subprocess.CompletedProcess:
+    return subprocess.run(args, input=stdin, text=True, capture_output=True)
+
+
+def git(*args: str, what: str) -> str:
+    p = _run("git", *args)
+    if p.returncode != 0:
+        die(f"{what} failed: {p.stderr.strip() or 'git error'}")
+    return p.stdout.strip()
+
+
+def gh(*args: str, what: str, stdin: str | None = None) -> str:
+    p = _run("gh", *args, stdin=stdin)
+    if p.returncode != 0:
+        die(f"{what} failed: {p.stderr.strip() or 'gh error'}")
+    return p.stdout
+
+
+# --- parsing ------------------------------------------------------------------
+
+class Block:
+    __slots__ = ("checked", "path", "start", "end", "prose")
+
+    def __init__(self, checked: bool, path: str | None,
+                 start: int | None, end: int | None, prose: str) -> None:
+        self.checked = checked
+        self.path = path
+        self.start = start
+        self.end = end
+        self.prose = prose
+
+    @property
+    def located(self) -> bool:
+        return self.path is not None
+
+
+class Section:
+    __slots__ = ("ordinal", "label", "preamble", "blocks")
+
+    def __init__(self, ordinal: int, label: str, preamble: str,
+                 blocks: list[Block]) -> None:
+        self.ordinal = ordinal
+        self.label = label
+        self.preamble = preamble
+        self.blocks = blocks
+
+
+def _trim(lines: list[str]) -> str:
+    """Join lines, dropping leading and trailing blank ones."""
+    i, j = 0, len(lines)
+    while i < j and not lines[i].strip():
+        i += 1
+    while j > i and not lines[j - 1].strip():
+        j -= 1
+    return "\n".join(lines[i:j])
+
+
+def parse_diff_ranges(diff_text: str) -> dict[str, list[tuple[int, int]]]:
+    """Changed (added-side) line ranges per path, from the canonical diff."""
+    ranges: dict[str, list[tuple[int, int]]] = {}
+    path: str | None = None
+    for line in diff_text.splitlines():
+        if line.startswith("+++ "):
+            p = line[4:].strip()
+            if p.startswith("b/"):
+                p = p[2:]
+            path = None if p == "/dev/null" else p
+        elif line.startswith("@@ ") and path is not None:
+            m = re.search(r"\+(\d+)(?:,(\d+))?", line)
+            if not m:
+                continue
+            start = int(m.group(1))
+            length = int(m.group(2)) if m.group(2) is not None else 1
+            if length > 0:
+                ranges.setdefault(path, []).append((start, start + length - 1))
+    return ranges
+
+
+def in_diff(ranges: dict[str, list[tuple[int, int]]], path: str, line: int) -> bool:
+    return any(lo <= line <= hi for lo, hi in ranges.get(path, ()))
+
+
+def parse_review(text: str) -> tuple[str, list[Section]]:
+    """Split REVIEW.md into its verdict body and its ## sections.
+
+    Frontmatter is skipped (the snapshot is the source of truth for pr/head).
+    The body is everything up to the first ## heading. Each section carries its
+    ordinal, its (possibly human-edited) heading text as the label, the preamble
+    between the heading and its first ### block, and its blocks.
+    """
+    lines = text.splitlines()
+    n = len(lines)
+    i = 0
+
+    if i < n and lines[i].strip() == "---":      # frontmatter
+        i += 1
+        while i < n and lines[i].strip() != "---":
+            i += 1
+        if i < n:
+            i += 1
+
+    body_start = i
+    while i < n and not lines[i].startswith("## "):
+        i += 1
+    body_lines = lines[body_start:i]
+    if any(ln.startswith("### ") for ln in body_lines):
+        die("a finding (### block) appears before the first section (## heading). "
+            "Every finding must sit under one of the three sections.")
+    body = _trim(body_lines)
+
+    sections: list[Section] = []
+    while i < n and lines[i].startswith("## "):
+        ordinal = len(sections) + 1
+        label = lines[i][3:].strip()
+        i += 1
+
+        pre_start = i
+        while i < n and not lines[i].startswith(("### ", "## ")):
+            i += 1
+        preamble = _trim(lines[pre_start:i])
+
+        blocks: list[Block] = []
+        while i < n and lines[i].startswith("### "):
+            head = lines[i]
+            i += 1
+            cm = CHECKBOX.match(head)
+            checked = bool(cm and cm.group(1) in ("x", "X"))
+            lm = LINK.search(head)
+            if lm:
+                path: str | None = lm.group(1)
+                start: int | None = int(lm.group(2))
+                em = END_L.search(head)
+                end: int | None = int(em.group(1)) if em else start
+            else:
+                path = start = end = None
+            pr_start = i
+            while i < n and not lines[i].startswith(("## ", "### ")):
+                i += 1
+            blocks.append(Block(checked, path, start, end, _trim(lines[pr_start:i])))
+
+        sections.append(Section(ordinal, label, preamble, blocks))
+
+    return body, sections
+
+
+# --- routing and assembly -----------------------------------------------------
+
+def permalink(nwo: str, head: str, path: str, start: int, end: int) -> str:
+    frag = f"L{start}" + (f"-L{end}" if end > start else "")
+    return f"https://github.com/{nwo}/blob/{head}/{path}#{frag}"
+
+
+def route(sections: list[Section], ranges: dict[str, list[tuple[int, int]]],
+          nwo: str, head: str) -> tuple[list[dict], list[tuple[str, str, list[str]]]]:
+    """Sort checked findings into inline comments and body-folded groups.
+
+    Returns (comments, fold_groups) where a fold group is
+    (label, preamble, [rendered finding text...]) in file order.
+    """
+    comments: list[dict] = []
+    fold_groups: list[tuple[str, str, list[str]]] = []
+
+    for s in sections:
+        items: list[str] = []
+        for b in s.blocks:
+            if not b.checked:
+                continue
+            if s.ordinal > 3:
+                die(f"a checked finding sits under section #{s.ordinal} "
+                    f"(\u00ab{s.label}\u00bb). The grammar has exactly three "
+                    "sections — Problems, Observations, Pre-existing, in that "
+                    "order. Keep all three ## headings, even if empty.")
+
+            # Sections 1 & 2, located: inline, and it must be in the diff.
+            if b.located and s.ordinal in (1, 2):
+                if not in_diff(ranges, b.path, b.start):
+                    die(f"a checked finding in section \u00ab{s.label}\u00bb points "
+                        f"at {b.path} line {b.start}, outside this PR's diff. Inline "
+                        "comments must land on changed lines — if it is pre-existing, "
+                        "move it to the third (Pre-existing) section; if its anchor is "
+                        "stale, re-prepare. Then re-run.")
+                comment = {"path": b.path, "body": b.prose,
+                           "line": b.end, "side": "RIGHT"}
+                if b.end > b.start:
+                    comment["start_line"] = b.start
+                    comment["start_side"] = "RIGHT"
+                comments.append(comment)
+                continue
+
+            # Everything else folds: section 3 (any), sections 1 & 2 locationless.
+            if not s.label:
+                die(f"section #{s.ordinal} has a checked finding to fold but its ## "
+                    "heading has no text to use as a label. Label the heading, then re-run.")
+            if b.located:
+                base = b.path.rsplit("/", 1)[-1]
+                rng = f"L{b.start}" + (f"-L{b.end}" if b.end > b.start else "")
+                link = permalink(nwo, head, b.path, b.start, b.end)
+                items.append(f"[{base} {rng}]({link})\n\n{b.prose}")
+            else:
+                items.append(b.prose)
+
+        if items:
+            fold_groups.append((s.label, s.preamble, items))
+
+    return comments, fold_groups
+
+
+def assemble_body(body: str, fold_groups: list[tuple[str, str, list[str]]]) -> str:
+    """The PR-level comment: verdict, then each contributing section under its
+    label, with its preamble copied verbatim, then its findings."""
+    parts: list[str] = []
+    if body:
+        parts.append(body)
+    if fold_groups:
+        parts.append("---")
+        for label, preamble, items in fold_groups:
+            parts.append(f"**{label}**")
+            if preamble:
+                parts.append(preamble)
+            parts.extend(items)
+    return ("\n\n".join(parts)).strip() + "\n"
+
+
+def format_recap(sections: list[Section], comments: list[dict],
+                 fold_count: int, event: str) -> str:
+    """Human-readable curation recap printed before the prompt: per-section
+    checked/unchecked/total, then the verdict about to be posted. A section that
+    shows 0 checked is the cue for a REVIEW.md that was never read to the end."""
+    lines = [f"{PROG}: REVIEW.md recap"]
+    width = max((len(s.label) for s in sections), default=0)
+    for s in sections:
+        total = len(s.blocks)
+        checked = sum(1 for b in s.blocks if b.checked)
+        lines.append(f"  §{s.ordinal} {s.label:<{width}}  checked {checked}"
+                     f" / unchecked {total - checked} / total {total}")
+    if event == "APPROVE":
+        lines.append("  → verdict: APPROVE (no findings checked)")
+    else:
+        lines.append(f"  → verdict: REQUEST_CHANGES "
+                     f"({len(comments) + fold_count} finding(s): {len(comments)} "
+                     f"inline, {fold_count} folded)")
+    return "\n".join(lines) + "\n"
+
+
+# --- the interactive confirmation ---------------------------------------------
+
+def confirm(prompt: str) -> bool:
+    # Prefer the controlling terminal: an irreversible POST should need a real
+    # keystroke, not something a pipe or heredoc (`echo y | pr-finalize`) can
+    # pre-answer. Two one-directional handles, NOT "r+": any read+write mode builds
+    # a BufferedRandom, whose constructor demands a seekable raw stream — and a tty
+    # is not seekable, so "r+" raises io.UnsupportedOperation (a subclass of OSError,
+    # which silently mislabels the failure as "no terminal"; observed on WSL2).
+    try:
+        tty_in = open("/dev/tty", "r")
+        tty_out = open("/dev/tty", "w")
+    except OSError:
+        # No controlling terminal (e.g. launched through a wrapper that dropped it).
+        # Fall back to stdin, but only if it is itself interactive.
+        if not sys.stdin.isatty():
+            die("posting is irreversible and needs an interactive terminal to confirm. "
+                "Run pr-finalize from a shell, or use --dry-run to preview.")
+        sys.stderr.write(prompt)
+        sys.stderr.flush()
+        return sys.stdin.readline().strip()[:1] in ("y", "Y")
+    try:
+        tty_out.write(prompt)
+        tty_out.flush()
+        answer = tty_in.readline().strip()
+    finally:
+        tty_in.close()
+        tty_out.close()
+    return answer[:1] in ("y", "Y")
+
+
+# --- main ---------------------------------------------------------------------
+
+def main(argv: list[str]) -> int:
+    dry_run = False
+    for arg in argv:
+        if arg == "--dry-run":
+            dry_run = True
+        else:
+            die(f"unexpected argument: {arg} (usage: pr-finalize [--dry-run])")
+
+    if shutil.which("gh") is None:
+        die("GitHub CLI (gh) is not installed. Install it "
+            "(https://github.com/cli/cli#installation), then try again.")
+
+    # Repo root: REVIEW.md and the snapshot live here.
+    top = git("rev-parse", "--show-toplevel", what="locating the repository")
+    if Path(top).resolve() != Path.cwd().resolve():
+        die(f"run pr-finalize from the repository root: {top}")
+
+    if not STATE_DIR.joinpath("state.json").is_file():
+        die(f"no preparation snapshot ({STATE_DIR/'state.json'}). "
+            "Prepare and review first: pr-review <id>.")
+    try:
+        state = json.loads(STATE_DIR.joinpath("state.json").read_text())
+    except (OSError, ValueError) as e:
+        die(f"could not read the preparation snapshot: {e}")
+    pr_id = str(state.get("prId", "")).strip()
+    head = str(state.get("head", "")).strip()
+    if not pr_id.isdigit():
+        die("state.json has no usable prId — the snapshot is broken. Re-prepare.")
+    if not head:
+        die("state.json has no head — the snapshot is broken. Re-prepare.")
+
+    branch = git("rev-parse", "--abbrev-ref", "HEAD", what="reading the branch")
+    if branch != f"pr/{pr_id}":
+        die(f"not on the prepared branch (HEAD is '{branch}', expected 'pr/{pr_id}'). "
+            f"Check it out, or re-prepare: pr-review {pr_id}.")
+
+    if not REVIEW.is_file():
+        die("no REVIEW.md at the repo root — nothing curated to post. "
+            f"Run the review first: pr-review {pr_id}.")
+
+    # Terminal-state guard: a posted marker closes this preparation.
+    if POSTED_MD.exists():
+        die(f"PR #{pr_id} was already finalized ({POSTED_MD}). REVIEW.md is kept for "
+            f"follow-up; to post again, re-prepare (pr-review {pr_id}) — a fresh "
+            "preparation of the current head.")
+
+    # gh signed in (clearer than letting the first API call fail).
+    if _run("gh", "auth", "status").returncode != 0:
+        die("gh is installed but not signed in. Run 'gh auth login', then try again.")
+
+    # Resolve the repo and print the PR's URL first thing — so it can be opened in
+    # a browser (ctrl-click) while the slower live-head check, parsing and routing
+    # below run. This needs only the repo name, already in hand from the snapshot's
+    # pr_id plus gh's default repo.
+    nwo = gh("repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner",
+             what="resolving the repository").strip()
+    if not nwo:
+        die("gh returned no repository name; is a default repo set?")
+    print(f"{PROG}: PR #{pr_id} — https://github.com/{nwo}/pull/{pr_id}", file=sys.stderr)
+
+    # Live head check: the reviewed head must still be the PR head, or every line
+    # number and permalink the review wrote points at the wrong code.
+    live_head = gh("pr", "view", pr_id, "--json", "headRefOid", "--jq", ".headRefOid",
+                   what=f"reading PR #{pr_id} head").strip()
+    if live_head != head:
+        die(f"PR #{pr_id} moved since preparation (GitHub head {live_head[:12]}, "
+            f"reviewed head {head[:12]}). The review's anchors no longer match. "
+            f"Re-prepare and re-review: pr-review {pr_id}.")
+
+    ranges_path = STATE_DIR / "canonical.diff"
+    ranges = parse_diff_ranges(ranges_path.read_text()) if ranges_path.is_file() else {}
+
+    body, sections = parse_review(REVIEW.read_text())
+    comments, fold_groups = route(sections, ranges, nwo, head)
+    body_text = assemble_body(body, fold_groups)
+    fold_count = sum(len(items) for _, _, items in fold_groups)
+
+    # Verdict by curation: any checked finding (in any section) blocks; none
+    # approves. The checkbox is the blocking signal, not the section.
+    event = "REQUEST_CHANGES" if (comments or fold_count) else "APPROVE"
+
+    # GitHub requires a body on a REQUEST_CHANGES. The only path to an empty one
+    # here is an all-inline block with no verdict prose and nothing folded — a
+    # couple of blank lines do not count, hence the strip. Refuse loudly rather
+    # than send a request that would 422.
+    if event == "REQUEST_CHANGES" and not body_text.strip():
+        die("requesting changes, but the review body is empty: every checked "
+            "finding posts as an inline comment and there is no summary above the "
+            "first section, so GitHub would reject the review. Add a short summary "
+            "at the top of REVIEW.md (before the first ## section), then re-run.")
+
+    payload = {"body": body_text, "event": event, "comments": comments}
+    recap = format_recap(sections, comments, fold_count, event)
+
+    if dry_run:
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+        sys.stderr.write(recap)
+        print(f"{PROG}: dry run — nothing posted.", file=sys.stderr)
+        return 0
+
+    sys.stderr.write(recap)
+
+    if event == "APPROVE":
+        # No findings checked. That can mean "read it, it's clean" — or "never
+        # finished reading it". Two gates, the second naming that risk, before an
+        # approval that cannot be taken back.
+        if not confirm(f"{PROG}: post an APPROVE review to PR #{pr_id} — "
+                       "no findings checked? [y/N] "):
+            die("declined. Nothing posted; REVIEW.md untouched.")
+        if not confirm(f"{PROG}: an unmodified REVIEW.md may simply be unread — "
+                       f"confirm you have read it through and PR #{pr_id} is good "
+                       "to approve? [y/N] "):
+            die("declined. Nothing posted; REVIEW.md untouched.")
+    elif not confirm(f"{PROG}: post a REQUEST_CHANGES review to PR #{pr_id} — "
+                     f"{len(comments)} inline comment(s), {fold_count} finding(s) "
+                     "folded into the body? [y/N] "):
+        die("declined. Nothing posted; REVIEW.md untouched.")
+
+    # Post one review object. The base repo (nwo) holds the PR and its diff; for
+    # an open PR the head commit is reachable there, fork or not.
+    response_text = gh("api", "--method", "POST",
+                       f"repos/{nwo}/pulls/{pr_id}/reviews", "--input", "-",
+                       what="posting the review", stdin=json.dumps(payload))
+    try:
+        response = json.loads(response_text)
+        review_url = response.get("html_url", "")
+    except ValueError:
+        review_url = ""
+    if not review_url:
+        die("the POST returned no review URL — treating it as a failure. "
+            f"Response:\n{response_text}")
+
+    # Archive AND mark, marker first: posted.md is both the as-posted snapshot and
+    # the guard, so writing it first closes the double-post window as early as
+    # possible. A failure after a successful post is reported loudly.
+    RUN_DIR.mkdir(exist_ok=True)
+    try:
+        shutil.copyfile(REVIEW, POSTED_MD)
+    except OSError as e:
+        print(f"{PROG}: POSTED OK ({review_url}) but could not write the marker "
+              f"{POSTED_MD}: {e}. The review is live; do NOT re-run — create "
+              f"{POSTED_MD} by hand to lock it.", file=sys.stderr)
+        return 1
+    try:
+        POSTED_JSON.write_text(json.dumps({"payload": payload, "response": response},
+                                          ensure_ascii=False, indent=2))
+    except OSError as e:
+        print(f"{PROG}: warning — posted.json not written ({e}), but the posted.md "
+              f"marker is set (no double-post risk). Review: {review_url}",
+              file=sys.stderr)
+
+    print(f"{PROG}: posted: {review_url}", file=sys.stderr)
+    print(f"{PROG}: REVIEW.md kept at the repo root — unchecked findings survive for "
+          f"a follow-up. This preparation is finalized; re-prepare (pr-review {pr_id}) "
+          "to start over.", file=sys.stderr)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))
