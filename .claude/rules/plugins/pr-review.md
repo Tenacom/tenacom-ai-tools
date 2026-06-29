@@ -114,12 +114,19 @@ drop it). The docs' "hooks not firing → `chmod +x`" symptom is this.
   only because of the plain-commands rule plus explicit allows — the static analyzer defeats
   `autoAllowBashIfSandboxed` on anything it cannot parse, so allowed Bash commands must stay
   in fixed, parseable shapes.
-- `allow`: `Read`, `Task`, `Write`, `Bash(ugrep:*)`, `Bash(bfs:*)`, `Bash(git rev-parse:*)`,
-  `Bash(git merge-base:*)`. `deny`: `WebFetch`, `WebSearch`, `Bash(gh:*)`, `Bash(php:*)`,
-  `Bash(node:*)`, `Bash(npm:*)`, `Bash(npx:*)`.
-- Search vocabulary is closed at four commands — `git rev-parse`, `git merge-base`, `ugrep`,
-  `bfs` — in fixed shapes (literal patterns; embedded `ugrep` runs in-process and a
-  backtracking regex can OOM the host).
+- `allow`: `Read`, `Task`, `Write`, `Bash(rg:*)`, `Bash(grep:*)`, `Bash(find:*)`, `Bash(ugrep:*)`,
+  `Bash(bfs:*)`, `Bash(git rev-parse:*)`, `Bash(git merge-base:*)`. `deny`: `WebFetch`, `WebSearch`,
+  `Bash(gh:*)`, `Bash(php:*)`, `Bash(node:*)`, `Bash(npm:*)`, `Bash(npx:*)`.
+- Search is one read-only command in fixed shapes — `rg` (ripgrep) by default, with `grep`/`find`
+  (and the legacy `ugrep`/`bfs` names) as allow-listed equivalents Claude Code may expose depending
+  on the build. `rg` is backtracking-immune; the embedded fallbacks run in-process, so patterns stay
+  literal or near-literal to avoid a backtracking OOM. The names are allow-listed broadly **on
+  purpose**: a build that renames the embedded search tools — as the 2.1.x line silently renamed
+  `ugrep`/`bfs` to the `grep`/`find` shims and surfaced `rg` — must degrade to at worst a permission
+  prompt, never a missing-command stop. Silent degradation beats refusing to review: a stray
+  confirmation prompt gets reported as a bug, but a hard failure with no context (an end user has no
+  idea why `ugrep` is needed) gets the plugin abandoned. So this list deliberately never fails closed
+  on a search tool, and the SKILL never gates the review on one resolving.
 - Launch pins max effort: `exec env CLAUDE_CODE_EFFORT_LEVEL=max claude --settings … "/pr-review:run [register]"`.
 
 ### Never-execute rule
@@ -224,7 +231,7 @@ These live paths were unconfirmed when the plugin was packaged; confirm before t
   this became a plugin (plugins _can_ contribute agents), but it fits worse than it looks.
   Custom agents pay off when a **large static system prompt** is hoisted out so the
   per-invocation input stays small; here it is the reverse — the static shared block
-  (agent assumptions, never-execute, the closed `ugrep`/`bfs` vocabulary, the run-directory
+  (agent assumptions, never-execute, the closed read-only search vocabulary, the run-directory
   write protocol, the return format) is small, while the **bulk** of every lane prompt is
   per-run dynamic context (intent brief, fully-assembled rule set, changed-files list,
   canonical-diff path, run/agent numbers, output filename) that step 4 requires be injected
@@ -236,8 +243,8 @@ These live paths were unconfirmed when the plugin was packaged; confirm before t
   **validators cannot be agentized** (no agent number, progressive `<n>`, mixed-lane
   findings — pure dynamic dispatch); and plugin agents **pollute the session-wide registry**
   with six types meaningless unless handed a full context. The one thing prompt-injection
-  cannot do — a structural `allowed-tools` allowlist (`Read`, `Bash(ugrep:*)`,
-  `Bash(bfs:*)`, `Write`) as a single shared `review-lane` agent — would only be
+  cannot do — a structural `allowed-tools` allowlist (`Read`, `Bash(rg:*)`,
+  `Bash(grep:*)`, `Bash(find:*)`, `Write`) as a single shared `review-lane` agent — would only be
   defense-in-depth beneath the sandbox `deny` list, which already enforces never-execute and
   zero-network at the strongest layer. Not worth the second home for the invariants.
   **Keep the lanes as orchestrated `Task` prompts.**
