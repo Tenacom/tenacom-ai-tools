@@ -2,7 +2,7 @@
 name: run
 description: Review the prepared PR branch against full local source with zero network — all GitHub context comes from the preparation's snapshot in .pr-review/ — verify it fulfils its stated purpose, and write the findings to REVIEW.md — a structured file whose body is the PR-level review comment and whose ###-headed blocks are findings that post only once a human checks their checkbox
 argument-hint: "[expert]"
-allowed-tools: Bash(git rev-parse:*), Bash(git merge-base:*), Bash(rg:*), Bash(grep:*), Bash(find:*), Bash(ugrep:*), Bash(bfs:*), Read, Grep, Glob, Task, Write
+allowed-tools: Bash(git rev-parse:*), Bash(git merge-base:*), Bash(rg:*), Bash(grep:*), Bash(find:*), Bash(ugrep:*), Bash(bfs:*), Read, Grep, Glob, Task, Write, Edit, MultiEdit
 disable-model-invocation: true
 effort: max
 ---
