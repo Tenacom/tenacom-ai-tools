@@ -76,7 +76,7 @@ SANDBOX_SETTINGS="$(cat <<'JSON'
     "allowUnsandboxedCommands": false
   },
   "permissions": {
-    "allow": [ "Read", "Task", "Write", "Bash(rg:*)", "Bash(grep:*)", "Bash(find:*)", "Bash(ugrep:*)", "Bash(bfs:*)", "Bash(git rev-parse:*)", "Bash(git merge-base:*)" ],
+    "allow": [ "Read", "Task", "Write", "Edit", "MultiEdit", "Bash(rg:*)", "Bash(grep:*)", "Bash(find:*)", "Bash(ugrep:*)", "Bash(bfs:*)", "Bash(git rev-parse:*)", "Bash(git merge-base:*)" ],
     "deny": [ "WebFetch", "WebSearch", "Bash(gh:*)", "Bash(php:*)", "Bash(node:*)", "Bash(npm:*)", "Bash(npx:*)" ]
   },
   "hooks": {

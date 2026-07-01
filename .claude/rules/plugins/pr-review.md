@@ -119,9 +119,11 @@ drop it). The docs' "hooks not firing → `chmod +x`" symptom is this.
   weaken never-execute/egress — the deny list still blocks `gh`/`php`/`node`/`npm`/`npx`. The
   plain-commands rule stays, but as a **quality/legibility** guideline now, not the prompt
   mechanism: a command that slips it degrades to a silently-allowed sandboxed run, never a prompt.
-- `allow`: `Read`, `Task`, `Write`, `Bash(rg:*)`, `Bash(grep:*)`, `Bash(find:*)`, `Bash(ugrep:*)`,
-  `Bash(bfs:*)`, `Bash(git rev-parse:*)`, `Bash(git merge-base:*)`. `deny`: `WebFetch`, `WebSearch`,
-  `Bash(gh:*)`, `Bash(php:*)`, `Bash(node:*)`, `Bash(npm:*)`, `Bash(npx:*)`.
+- `allow`: `Read`, `Task`, `Write`, `Edit`, `MultiEdit`, `Bash(rg:*)`, `Bash(grep:*)`, `Bash(find:*)`,
+  `Bash(ugrep:*)`, `Bash(bfs:*)`, `Bash(git rev-parse:*)`, `Bash(git merge-base:*)`. `deny`: `WebFetch`,
+  `WebSearch`, `Bash(gh:*)`, `Bash(php:*)`, `Bash(node:*)`, `Bash(npm:*)`, `Bash(npx:*)`. `Edit`/`MultiEdit`
+  are allowed so an agent amending its own report does not prompt (the hook covers Bash only); the
+  `Bash(...)` allow entries stay as documentation and a fallback if the hook is ever absent.
 - Search is one read-only command in fixed shapes — `rg` (ripgrep) by default, with `grep`/`find`
   (and the legacy `ugrep`/`bfs` names) as allow-listed equivalents Claude Code may expose depending
   on the build. `rg` is backtracking-immune; the embedded fallbacks run in-process, so patterns stay
