@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Bugs fixed in this release
 
+- The sandboxed review no longer prompts for permission on commands with shell expansions (or other constructs Claude Code's static analyzer cannot parse) — a Claude Code bug ([anthropics/claude-code#43713](https://github.com/anthropics/claude-code/issues/43713)) that defeated sandbox auto-allow. A session hook restores the sandbox as the trust boundary; the deny list still blocks network access and code execution.
+
+### Known problems introduced by this release
+
 ## [1.0.1](https://github.com/Tenacom/tenacom-ai-tools/releases/tag/pr-review/1.0.1) (2026-06-30)
 
 ### Bugs fixed in this release

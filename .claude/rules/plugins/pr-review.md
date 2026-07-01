@@ -110,10 +110,15 @@ drop it). The docs' "hooks not firing → `chmod +x`" symptom is this.
 
 ### Sandbox & permissions
 
-- Zero egress, enforced by the `deny` list (deny wins across scopes). Zero prompts is real
-  only because of the plain-commands rule plus explicit allows — the static analyzer defeats
-  `autoAllowBashIfSandboxed` on anything it cannot parse, so allowed Bash commands must stay
-  in fixed, parseable shapes.
+- Zero egress, enforced by the `deny` list (deny wins across scopes — **including over a hook's
+  `allow`**). Zero prompts is delivered by a **PreToolUse `Bash` hook** in the sandbox settings
+  that unconditionally allows Bash: it works around `autoAllowBashIfSandboxed` being defeated by
+  the static analyzer on anything it cannot parse (shell expansions, substitutions, brace/ANSI-C
+  strings — Claude Code bug anthropics/claude-code#43713, still open). The hook makes the sandbox
+  the boundary, as the setting intends; because a hook's `allow` never overrides `deny`, it cannot
+  weaken never-execute/egress — the deny list still blocks `gh`/`php`/`node`/`npm`/`npx`. The
+  plain-commands rule stays, but as a **quality/legibility** guideline now, not the prompt
+  mechanism: a command that slips it degrades to a silently-allowed sandboxed run, never a prompt.
 - `allow`: `Read`, `Task`, `Write`, `Bash(rg:*)`, `Bash(grep:*)`, `Bash(find:*)`, `Bash(ugrep:*)`,
   `Bash(bfs:*)`, `Bash(git rev-parse:*)`, `Bash(git merge-base:*)`. `deny`: `WebFetch`, `WebSearch`,
   `Bash(gh:*)`, `Bash(php:*)`, `Bash(node:*)`, `Bash(npm:*)`, `Bash(npx:*)`.

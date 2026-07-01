@@ -55,7 +55,21 @@ set -euo pipefail
 log() { printf '  %s\n' "$*" >&2; }
 die() { printf 'pr-review: %s\n' "$*" >&2; exit 1; }
 
-SANDBOX_SETTINGS='{
+# The review runs sandboxed with a fixed permission profile, applied only to this session
+# via --settings (.claude/settings.local.json is never touched). Three parts:
+#   - sandbox: OS-level containment (no egress, tree-scoped writes) — the real boundary.
+#   - permissions: the search allow list, and the never-execute/egress guard (deny). deny
+#     wins over everything, including the hook below.
+#   - hooks: a PreToolUse Bash hook that unconditionally allows Bash. It works around
+#     anthropics/claude-code#43713 — autoAllowBashIfSandboxed falls back to a permission
+#     prompt for any command the static analyzer cannot parse (shell expansions, command
+#     substitutions, brace/ANSI-C strings), which in an unattended sandboxed review is pure
+#     friction. The hook restores the setting's intended behaviour: the sandbox is the
+#     boundary. It cannot weaken never-execute — a hook's "allow" never overrides a deny
+#     rule — so the deny list still blocks gh/php/node/npm/npx. The heredoc is quoted
+#     (<<'JSON') so the hook command's inner quotes need no escaping.
+SANDBOX_SETTINGS="$(cat <<'JSON'
+{
   "sandbox": {
     "enabled": true,
     "autoAllowBashIfSandboxed": true,
@@ -64,8 +78,15 @@ SANDBOX_SETTINGS='{
   "permissions": {
     "allow": [ "Read", "Task", "Write", "Bash(rg:*)", "Bash(grep:*)", "Bash(find:*)", "Bash(ugrep:*)", "Bash(bfs:*)", "Bash(git rev-parse:*)", "Bash(git merge-base:*)" ],
     "deny": [ "WebFetch", "WebSearch", "Bash(gh:*)", "Bash(php:*)", "Bash(node:*)", "Bash(npm:*)", "Bash(npx:*)" ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      { "matcher": "Bash", "hooks": [ { "type": "command", "command": "cat >/dev/null; printf %s '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"allow\",\"permissionDecisionReason\":\"sandboxed auto-allow (claude-code#43713)\"}}'" } ] }
+    ]
   }
-}'
+}
+JSON
+)"
 
 usage='usage: pr-review [prepare] <pr_id> [<register>]'
 
