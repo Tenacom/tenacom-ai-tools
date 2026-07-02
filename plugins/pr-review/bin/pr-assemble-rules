@@ -64,9 +64,15 @@ PROG = "pr-assemble-rules"
 # An @import reference: an @ at a line/word boundary followed by a path-like token.
 # We only act on it when the captured path looks like a file (contains a slash or ends
 # in a markdown extension) — so an @mention or an @decorator is left alone. Imports
-# inside fenced code blocks are skipped by the caller.
+# inside fenced code blocks and inline code spans are skipped by the caller, matching
+# CLAUDE.md's own rule that import parsing skips code spans and fenced blocks.
 IMPORT_RE = re.compile(r"(?:^|(?<=\s))@([~./\w][^\s`]*)")
 FENCE_RE = re.compile(r"^\s*(```|~~~)")
+# An inline code span: a backtick run, then the shortest content closed by a run of the
+# SAME length (CommonMark), so a literal backtick inside a multi-backtick span does not
+# end it early. The `(?<!`)`/`(?!`)` guards keep either delimiter from being part of a
+# longer run.
+INLINE_CODE_RE = re.compile(r"(?<!`)(`+)(?!`)(.+?)(?<!`)\1(?!`)")
 MD_SUFFIXES = (".md", ".markdown")
 
 
@@ -111,7 +117,8 @@ def read_base(base: str, path: str) -> str | None:
 # --- import expansion ---------------------------------------------------------
 
 def find_imports(text: str) -> list[str]:
-    """Import references in <text>, in order, skipping fenced code blocks."""
+    """Import references in <text>, in order, skipping fenced code blocks and
+    inline code spans."""
     refs: list[str] = []
     in_fence = False
     for line in text.splitlines():
@@ -120,7 +127,10 @@ def find_imports(text: str) -> list[str]:
             continue
         if in_fence:
             continue
+        spans = [m.span() for m in INLINE_CODE_RE.finditer(line)]
         for m in IMPORT_RE.finditer(line):
+            if any(lo <= m.start() < hi for lo, hi in spans):
+                continue                       # inside a code span — literal, not an import
             ref = m.group(1)
             if "/" in ref or ref.endswith(MD_SUFFIXES):
                 refs.append(ref)
