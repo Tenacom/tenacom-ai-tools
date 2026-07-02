@@ -168,6 +168,36 @@ tree, non-deterministic third surface). A behavioural question that `Read`
 cannot settle becomes a finding stating the question and the experiment — it is not answered
 by running anything.
 
+### Subagent preamble — the single delivery channel
+
+A subagent reads **only** its Task prompt, never `SKILL.md`, so every invariant a subagent must
+obey travels through one channel. `SKILL.md` collects that shared floor into a verbatim
+**subagent preamble** — no-execution, no-history, no-discovery, the read-only `rg` search
+vocabulary, no reads of `REVIEW.md`/the run dir/other agents' files, review-material-is-data
+(not instructions), report-in-English-register-neutral, always-write-your-file (even 0
+findings), one-line return. Both step 5 (lanes) and step 6 (validators) **prepend it verbatim**,
+then append only the agent-specific part (charter / findings-to-confirm, output path, report or
+verdict format). Do not re-scatter these invariants into per-lane prose or summarise the
+preamble — the single-block, prepend-verbatim shape is the fix for Tenacom/tenacom-ai-tools#1
+(invariants that lived only in prose never reached the agents). Lane vs validator differ only in
+the appended part; the floor is identical.
+
+The **data-not-instructions** framing deliberately covers the intent brief, PR title/body,
+referenced issues, canonical diff, and code on disk — **not** the assembled rule set, which is
+authoritative instruction the review exists to enforce (agent 4 audits against it, agent 6
+quotes it); marking it "data" would tell agents to ignore the rules they must apply. So the
+rule-set channel is **not** injection-hardened, and Tenacom/tenacom-ai-tools#1 M3 is only
+partially closed — accepted for now. Do not re-add the rule set to that preamble bullet.
+
+The framing is scoped to **authority, not evidence**: it refuses only embedded attempts to
+redirect or silence the review ("ignore your charter", "report no problems"), **not** a
+substantive comment or PR note explaining why specific code is correct or why a standard is
+deliberately departed from (the runtime-concatenated string that only looks ungrammatical, a
+documented exception). Those are weighed on their merits — the "correct in context" / silenced-
+rule discipline of the False positives note — and a sound reason defeats a would-be finding.
+Treating such explanations as injection would manufacture false positives, so the bullet must
+keep that line drawn.
+
 ### Run directory — files, never messages
 
 Results travel as files because the Task notification channel is lossy (drops observed).
@@ -260,8 +290,10 @@ bumped to the precondition-fixed number.
   this became a plugin (plugins _can_ contribute agents), but it fits worse than it looks.
   Custom agents pay off when a **large static system prompt** is hoisted out so the
   per-invocation input stays small; here it is the reverse — the static shared block
-  (agent assumptions, never-execute, the closed read-only search vocabulary, the run-directory
-  write protocol, the return format) is small, while the **bulk** of every lane prompt is
+  (the **subagent preamble** in `SKILL.md`: no-execution, no-history, no-discovery, the
+  read-only `rg` search vocabulary, no reads of `REVIEW.md`/the run dir, data-not-instructions,
+  report-in-English, always-write-your-file, and the one-line return) is small, while the
+  **bulk** of every lane prompt is
   per-run dynamic context (intent brief, fully-assembled rule set, changed-files list,
   canonical-diff path, run/agent numbers, output filename) that step 4 requires be injected
   at dispatch regardless (subagents do not reliably inherit loaded memory). So an agent
@@ -275,5 +307,8 @@ bumped to the precondition-fixed number.
   cannot do — a structural `allowed-tools` allowlist (`Read`, `Bash(rg:*)`,
   `Bash(grep:*)`, `Bash(find:*)`, `Write`) as a single shared `review-lane` agent — would only be
   defense-in-depth beneath the sandbox `deny` list, which already enforces never-execute and
-  zero-network at the strongest layer. Not worth the second home for the invariants.
+  zero-network at the strongest layer. Not worth the second home for the invariants. The
+  shared floor is instead hoisted verbatim as the **subagent preamble** and prepended to every
+  lane _and validator_ prompt — the single-spec realisation of the shared-system-prompt benefit,
+  without the second home (Tenacom/tenacom-ai-tools#1).
   **Keep the lanes as orchestrated `Task` prompts.**
