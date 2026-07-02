@@ -188,9 +188,14 @@ bumped to the precondition-fixed number.
 
 ## Packaging & deployment invariants
 
-- **Rolling release.** `version` is omitted from both `plugin.json` and the marketplace entry
-  → Claude Code falls back to the git commit SHA, so every marketplace commit is a new version
-  and `/plugin update` always advances. Setting `version` anywhere silently pins it.
+- **Versioned plugin, rolling marketplace.** The plugin carries a semver `version` in its own
+  `plugin.json` (`1.0.1` at time of writing), **not** in the marketplace entry (when both exist
+  `plugin.json` wins silently). Bumping that field is the release gate: Claude Code resolves the
+  version from `plugin.json` first, so pushing commits without a bump ships nothing to existing
+  installs. The _marketplace_ is the rolling, unversioned layer served from `main`; the plugin is
+  not. The SHA-fallback model — omit `version` everywhere so every commit is its own version — is
+  the true-rolling variant we deliberately declined for shipped plugins. See
+  `.claude/rules/versioning-and-releases.md` for the full model.
 - **`bin/` is the session PATH, not the shell PATH.** Files in `bin/` are invokable as bare
   commands inside any Bash tool call while the plugin is enabled — that is the model's PATH,
   not the user's interactive shell. `pr-review` must be typeable in a bare shell before any
