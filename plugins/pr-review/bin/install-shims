@@ -19,7 +19,7 @@
 #
 # What it does, idempotently:
 #   1. Self-locates — the live plugin version's bin/ dir, even via a symlink.
-#   2. Copies the two scripts into a STABLE dir (~/.local/share/pr-review/bin),
+#   2. Copies the three scripts into a STABLE dir (~/.local/share/pr-review/bin),
 #      refreshing only when they differ (first run, or after a plugin update).
 #      The copies are independent of the version-pinned plugin cache, so a PATH
 #      entry can lag a version behind but can never dangle when an old cache
