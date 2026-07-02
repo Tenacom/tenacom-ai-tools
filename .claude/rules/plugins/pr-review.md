@@ -246,14 +246,6 @@ bumped to the precondition-fixed number.
   `raw.githubusercontent.com` without a token, and a token piped to bash is exactly the
   entropy we refuse.
 
-## Still to verify
-
-These live paths were unconfirmed when the plugin was packaged; confirm before trusting them.
-
-- **Carried**: dead-lane relaunch drill; `gh`/`WebFetch`/`WebSearch` deny rules fail fast (no
-  prompt) from a subagent; VS Code `###`-click lands right with the literal `[ ]` heading;
-  Precondition-5 hard gate; behavioural-question-as-finding.
-
 ## Dead ends — do not re-walk
 
 - **Skill self-location.** A skill body has no `__file__`; deriving its own path from the
