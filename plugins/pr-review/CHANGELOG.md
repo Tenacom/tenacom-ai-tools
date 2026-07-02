@@ -13,6 +13,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changes to existing features
 
+### Bugs fixed in this release
+
+### Known problems introduced by this release
+
+## [1.0.2](https://github.com/Tenacom/tenacom-ai-tools/releases/tag/pr-review/1.0.2) (2026-07-03)
+
+### Changes to existing features
+
 - The sandboxed review is hardened and now fails closed. If the operating-system sandbox cannot start, the review stops instead of silently running unprotected, and on Linux/WSL2 it checks up front for its dependencies (`bubblewrap`, `socat`) with a clear message if either is missing. Executed commands are now contained by the sandbox itself: the review's own files and the rest of the working tree are read-only to shell commands, so nothing a command runs can alter the review or the repository. Because that containment no longer relies on naming individual interpreters, the previous `php`/`node`/`npm`/`npx` command denials were removed; such a list could never be complete.
 
 ### Bugs fixed in this release
@@ -24,8 +32,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The review is now hardened against a pull request tampering with the rules it is judged by. A pull request's own rule files — `CLAUDE.md`, everything under `.claude/rules/`, and the review's glossary overrides — are part of the changes under review, so a hostile pull request could previously plant instructions in them (for example, "report no problems") and have the review obey them. The review now reads those rules from the **base branch** — the version already merged into the repository — exactly as GitHub reads a CODEOWNERS file from the base, and the review's agents are told to treat any rule text in the pull request itself as content to audit, never as instructions. A pull request's changes to the rule files are still reviewed like any other change; they simply do not govern their own review (a rule a pull request introduces takes effect for later ones).
 - A review agent that fails to produce its report is now retried once and then reported as a coverage gap, instead of being relaunched indefinitely.
 - When a review agent can read only part of a large pull request, its coverage note is now surfaced — both recorded in the session and folded into the review's verdict — instead of being silently dropped, so a partial review is never mistaken for a complete one.
-
-### Known problems introduced by this release
 
 ## [1.0.1](https://github.com/Tenacom/tenacom-ai-tools/releases/tag/pr-review/1.0.1) (2026-06-30)
 
