@@ -164,7 +164,7 @@ drop it). The docs' "hooks not firing → `chmod +x`" symptom is this.
 ### Never-execute rule
 
 The review **never runs the code it reviews** (autoloader side effects, attacker-influenceable
-tree, writable sandbox, non-deterministic third surface). A behavioural question that `Read`
+tree, non-deterministic third surface). A behavioural question that `Read`
 cannot settle becomes a finding stating the question and the experiment — it is not answered
 by running anything.
 
