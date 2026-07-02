@@ -55,29 +55,42 @@ set -euo pipefail
 log() { printf '  %s\n' "$*" >&2; }
 die() { printf 'pr-review: %s\n' "$*" >&2; exit 1; }
 
-# The review runs sandboxed with a fixed permission profile, applied only to this session
-# via --settings (.claude/settings.local.json is never touched). Three parts:
-#   - sandbox: OS-level containment (no egress, tree-scoped writes) — the real boundary.
-#   - permissions: the search allow list, and the never-execute/egress guard (deny). deny
-#     wins over everything, including the hook below.
-#   - hooks: a PreToolUse Bash hook that unconditionally allows Bash. It works around
-#     anthropics/claude-code#43713 — autoAllowBashIfSandboxed falls back to a permission
-#     prompt for any command the static analyzer cannot parse (shell expansions, command
-#     substitutions, brace/ANSI-C strings), which in an unattended sandboxed review is pure
-#     friction. The hook restores the setting's intended behaviour: the sandbox is the
-#     boundary. It cannot weaken never-execute — a hook's "allow" never overrides a deny
-#     rule — so the deny list still blocks gh/php/node/npm/npx. The heredoc is quoted
-#     (<<'JSON') so the hook command's inner quotes need no escaping.
+# The review runs sandboxed with a fixed profile, applied only to this session via --settings
+# (.claude/settings.local.json is never touched). What each layer is really for:
+#   - sandbox: OS-level containment (bubblewrap on Linux/WSL2, Seatbelt on macOS) — the real
+#     boundary. failIfUnavailable makes a sandbox that cannot start a hard stop, never a silent
+#     unsandboxed run. filesystem.denyWrite scopes the whole repo root read-only for Bash and its
+#     children; the review's Bash is read-only anyway (search + git rev-parse/merge-base), and
+#     Read/Edit/Write bypass the sandbox, so agents still write REVIEW.md and the run dir while
+#     executed PR code can alter nothing — snapshot, run files, or .git (no planted hook). Egress is
+#     sealed by the network proxy (no domain allowed), independent of the deny list. sandbox.credentials
+#     is deliberately NOT set: with no egress and denyWrite, a secret read is inert, and a user who
+#     needs it sets it globally where it merges in.
+#   - permissions: the search allow list, and a deny list kept to capabilities a name can COMPLETELY
+#     deny — WebFetch/WebSearch and gh (the pre-authenticated GitHub-write path). We do NOT deny code
+#     execution by name: that match is unwinnable (python, ruby, make, shebang'd ./vendor/bin/phpunit,
+#     …), so php/node/npm/npx were removed — execution is made harmless by denyWrite above and
+#     discouraged by the SKILL's never-execute rule.
+#   - hooks: a PreToolUse Bash hook that unconditionally allows Bash, working around
+#     anthropics/claude-code#43713 — autoAllowBashIfSandboxed falls back to a permission prompt for any
+#     command the static analyzer cannot parse (shell expansions, substitutions, brace/ANSI-C strings),
+#     pure friction in an unattended review. A hook's "allow" never overrides a deny, so it cannot
+#     weaken the gh/web denials. The heredoc is quoted (<<'JSON') so inner quotes need no escaping; the
+#     one dynamic value — the repo root in denyWrite — rides in as @@TOP@@, substituted in launch_review.
 SANDBOX_SETTINGS="$(cat <<'JSON'
 {
   "sandbox": {
     "enabled": true,
     "autoAllowBashIfSandboxed": true,
-    "allowUnsandboxedCommands": false
+    "allowUnsandboxedCommands": false,
+    "failIfUnavailable": true,
+    "filesystem": {
+      "denyWrite": [ "@@TOP@@" ]
+    }
   },
   "permissions": {
     "allow": [ "Read", "Task", "Write", "Edit", "MultiEdit", "Bash(rg:*)", "Bash(grep:*)", "Bash(find:*)", "Bash(ugrep:*)", "Bash(bfs:*)", "Bash(git rev-parse:*)", "Bash(git merge-base:*)" ],
-    "deny": [ "WebFetch", "WebSearch", "Bash(gh:*)", "Bash(php:*)", "Bash(node:*)", "Bash(npm:*)", "Bash(npx:*)" ]
+    "deny": [ "WebFetch", "WebSearch", "Bash(gh:*)" ]
   },
   "hooks": {
     "PreToolUse": [
@@ -127,14 +140,33 @@ top="$(git rev-parse --show-toplevel 2>/dev/null)" || die "not a git repository.
 # section 4 reads that marker, so the path is defined here, once.
 run_dir="$top/.pr-review-run"
 
+# The review's safety rests on the sandbox actually starting. failIfUnavailable (in the settings)
+# turns a sandbox that cannot start into a hard stop rather than a silent unsandboxed run, but that
+# error can be cryptic, and an old Claude Code predating the flag would ignore it. So check the
+# Linux/WSL2 dependencies here too, before launch: bubblewrap and socat. macOS uses the built-in
+# Seatbelt and needs neither. (Ubuntu 24.04+ also needs an AppArmor userns profile for bwrap — see
+# the sandboxing docs — which we cannot detect here; failIfUnavailable is the backstop for that.)
+require_sandbox_deps() {
+  [[ "$(uname -s)" == "Linux" ]] || return 0
+  local missing=()
+  command -v bwrap >/dev/null 2>&1 || missing+=(bubblewrap)
+  command -v socat >/dev/null 2>&1 || missing+=(socat)
+  (( ${#missing[@]} == 0 )) || die "the sandboxed review needs ${missing[*]} on Linux/WSL2 (install: sudo apt-get install ${missing[*]}). It will not run unsandboxed against untrusted PR code — install the package(s), then re-run."
+}
+
 launch_review() {
   local prompt="/pr-review:run"
   if [[ -n "$register" ]]; then prompt="/pr-review:run $register"; fi
+  require_sandbox_deps
+  # denyWrite carries the repo root as a @@TOP@@ placeholder (the settings heredoc is quoted); fill
+  # it in now that $top is known. It scopes only Bash + children read-only; Read/Edit/Write bypass
+  # the sandbox, so the agents still write REVIEW.md and the run dir.
+  local settings="${SANDBOX_SETTINGS//@@TOP@@/$top}"
   log "launching sandboxed review session: claude \"$prompt\""
   # Effort is pinned here, not in skill frontmatter: the env var beats every
   # other scope (user settings, /effort residue, frontmatter), reaches
   # subagents, and "max" is session-only everywhere else anyway.
-  exec env CLAUDE_CODE_EFFORT_LEVEL=max claude --settings "$SANDBOX_SETTINGS" "$prompt"
+  exec env CLAUDE_CODE_EFFORT_LEVEL=max claude --settings "$settings" "$prompt"
 }
 
 # 4. An existing REVIEW.md means a review of this PR is in flight (curation, or

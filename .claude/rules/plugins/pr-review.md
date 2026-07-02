@@ -110,20 +110,45 @@ drop it). The docs' "hooks not firing → `chmod +x`" symptom is this.
 
 ### Sandbox & permissions
 
-- Zero egress, enforced by the `deny` list (deny wins across scopes — **including over a hook's
-  `allow`**). Zero prompts is delivered by a **PreToolUse `Bash` hook** in the sandbox settings
-  that unconditionally allows Bash: it works around `autoAllowBashIfSandboxed` being defeated by
-  the static analyzer on anything it cannot parse (shell expansions, substitutions, brace/ANSI-C
-  strings — Claude Code bug anthropics/claude-code#43713, still open). The hook makes the sandbox
-  the boundary, as the setting intends; because a hook's `allow` never overrides `deny`, it cannot
-  weaken never-execute/egress — the deny list still blocks `gh`/`php`/`node`/`npm`/`npx`. The
-  plain-commands rule stays, but as a **quality/legibility** guideline now, not the prompt
-  mechanism: a command that slips it degrades to a silently-allowed sandboxed run, never a prompt.
+- **The sandbox is the boundary; the deny list is a thin, deliberately incomplete supplement.**
+  OS-level containment (bubblewrap on Linux/WSL2, Seatbelt on macOS) is what actually holds. Two
+  sandbox settings harden it, applied per-session via `--settings`, and a third is deliberately
+  declined (Tenacom/tenacom-ai-tools#1):
+  - **`failIfUnavailable: true`** — a sandbox that cannot start is a hard stop, never a silent
+    unsandboxed run. The launcher also preflights the Linux/WSL2 deps (`bwrap`, `socat`) for a clear
+    message, and because a Claude Code predating the flag would ignore it.
+  - **`sandbox.filesystem.denyWrite: ["<repo-root>"]`** — the whole tree is read-only to **Bash and
+    its children**. This is the real replacement for name-denying interpreters: execution is made
+    _harmless_ (executed PR code cannot alter the snapshot, the run files, `REVIEW.md`, or `.git` — no
+    planted hook) rather than _blocked_. It costs the review nothing: its Bash is read-only (search +
+    `git rev-parse`/`merge-base`), and **`Read`/`Edit`/`Write` bypass the sandbox** (they go through
+    permissions), so the agents still write `REVIEW.md` and the run dir. The launcher injects the repo
+    root via a `@@TOP@@` placeholder, since the settings heredoc is quoted.
+  - **`sandbox.credentials` — declined, not an oversight.** It only gates sandboxed Bash (not the
+    `Read` tool), and with `denyWrite` + sealed egress a secret read is inert (copy it to `/tmp` — so
+    what). Enumerating secret files is the same anti-pattern as the interpreter deny list; a user who
+    needs it sets it globally, where credential entries merge across scopes and apply anyway.
+- **The permission `deny` list is kept to capabilities a name can _completely_ deny**: `WebFetch`,
+  `WebSearch`, and `Bash(gh:*)` (the pre-authenticated GitHub-write path the design reserves for the
+  human). `php`/`node`/`npm`/`npx` were **removed** (Tenacom/tenacom-ai-tools#1): denying execution by
+  name is unwinnable — `python`, `ruby`, `make`, `deno`, `pnpm`, and any shebang'd runner
+  (`./vendor/bin/phpunit` never matches `Bash(php:*)`) all slip it — and a partial list only buys churn
+  and false confidence. `denyWrite` neutralizes execution's damage; the SKILL's never-execute rule
+  discourages it up front. Egress is sealed by the network proxy (no domain allowed), independent of
+  the deny list.
+- The **PreToolUse `Bash` hook** unconditionally allows Bash, working around
+  anthropics/claude-code#43713 — `autoAllowBashIfSandboxed` falls back to a permission prompt for any
+  command the static analyzer cannot parse (shell expansions, substitutions, brace/ANSI-C strings),
+  pure friction in an unattended review. A hook's `allow` never overrides a `deny`, so it cannot weaken
+  the `gh`/web denials; and it does **not** auto-answer the proxy's per-domain network prompt (a
+  separate runtime mechanism), so egress stays sealed. The plain-commands rule stays as a
+  **quality/legibility** guideline, not the prompt mechanism: a command that slips it degrades to a
+  silently-allowed sandboxed run, never a prompt.
 - `allow`: `Read`, `Task`, `Write`, `Edit`, `MultiEdit`, `Bash(rg:*)`, `Bash(grep:*)`, `Bash(find:*)`,
   `Bash(ugrep:*)`, `Bash(bfs:*)`, `Bash(git rev-parse:*)`, `Bash(git merge-base:*)`. `deny`: `WebFetch`,
-  `WebSearch`, `Bash(gh:*)`, `Bash(php:*)`, `Bash(node:*)`, `Bash(npm:*)`, `Bash(npx:*)`. `Edit`/`MultiEdit`
-  are allowed so an agent amending its own report does not prompt (the hook covers Bash only); the
-  `Bash(...)` allow entries stay as documentation and a fallback if the hook is ever absent.
+  `WebSearch`, `Bash(gh:*)`. `Edit`/`MultiEdit` are allowed so an agent amending its own report does not
+  prompt (the hook covers Bash only); the `Bash(...)` allow entries stay as documentation and a fallback
+  if the hook is ever absent.
 - Search is one read-only command in fixed shapes — `rg` (ripgrep) by default, with `grep`/`find`
   (and the legacy `ugrep`/`bfs` names) as allow-listed equivalents Claude Code may expose depending
   on the build. `rg` is backtracking-immune; the embedded fallbacks run in-process, so patterns stay
@@ -225,9 +250,9 @@ bumped to the precondition-fixed number.
 
 These live paths were unconfirmed when the plugin was packaged; confirm before trusting them.
 
-- **Carried**: dead-lane relaunch drill; deny rules fail fast (no prompt) for
-  `gh`/`php`/`node`/`npm`/`npx` from a subagent; VS Code `###`-click lands right with the
-  literal `[ ]` heading; Precondition-5 hard gate; behavioural-question-as-finding.
+- **Carried**: dead-lane relaunch drill; `gh`/`WebFetch`/`WebSearch` deny rules fail fast (no
+  prompt) from a subagent; VS Code `###`-click lands right with the literal `[ ]` heading;
+  Precondition-5 hard gate; behavioural-question-as-finding.
 
 ## Dead ends — do not re-walk
 
