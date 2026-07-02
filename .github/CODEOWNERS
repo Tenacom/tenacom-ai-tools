@@ -1,0 +1,27 @@
+# This file specifies users whose review is automatically requested when a PR modifies certain files.
+# For more ionformation see:
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# GitHub and apps configuration files
+/.github/ @rdeago
+/.all-contributorsrc @rdeago
+
+# Git configuration files
+/.git* @rdeago
+/.git/ @rdeago
+
+# Licensing
+LICENSE @rdeago
+THIRD-PARTY-NOTICES @rdeago
+
+# Infrastructure files
+.editorconfig @rdeago
+.claude-plugin/ @rdeago
+
+# Documentation
+CHANGELOG.md @rdeago
+README.md @rdeago
+
+# Claude Code configuration
+/.claude/ @rdeago
+.mcp.json @rdeago

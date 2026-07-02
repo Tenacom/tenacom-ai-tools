@@ -1,0 +1,33 @@
+'area:code':
+ - changed-files:
+    - any-glob-to-any-file:
+      - '/.claude-plugin/**/*'
+      - '/plugins/**/*'
+
+'area:style':
+ - changed-files:
+    - any-glob-to-any-file:
+      - '**/.editorconfig'
+
+'area:repo':
+ - changed-files:
+    - any-glob-to-any-file:
+      - '.github/*.yml'
+      - '.github/**/*.md'
+      - CODEOWNERS
+      - '.github/CODEOWNERS'
+
+'area:ci':
+ - changed-files:
+    - any-glob-to-any-file:
+      - '.github/workflows/**/*'
+
+'area:docs':
+ - changed-files:
+    - any-glob-to-any-file:
+      - 'docs/**/*'
+      - '.all-contributorsrc'
+      - '**/CHANGELOG.md'
+      - '**/LICENSE'
+      - '**/README.md'
+      - '**/THIRD-PARTY-NOTICES'
