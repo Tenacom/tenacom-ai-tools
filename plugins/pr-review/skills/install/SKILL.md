@@ -13,6 +13,6 @@ Run the bundled `install-shims` command exactly once, then report the result. Do
 install-shims
 ```
 
-It puts `pr-review` and `pr-finalize` on the user's PATH: two symlinks in `~/.local/bin`, backed by copies it keeps under `~/.local/share/pr-review/bin`. It is idempotent — on a session after a plugin update it refreshes those copies, and otherwise it does nothing.
+It puts the commands on the user's PATH as symlinks in `~/.local/bin`, backed by copies it keeps under `~/.local/share/pr-review/bin`. Two are the end-user commands, `pr-review` and `pr-finalize`; the third, `pr-assemble-rules`, is an internal helper that `pr-review` calls during preparation, linked alongside so `pr-review` can find it. It is idempotent — on a session after a plugin update it refreshes those copies, and otherwise it does nothing.
 
-When it finishes, tell the user whether the two commands are now available, and — if `install-shims` printed a note that `~/.local/bin` is not on their PATH — pass that note along verbatim, since they will need to fix their PATH before the commands work in a shell.
+When it finishes, tell the user whether `pr-review` and `pr-finalize` are now available (the helper need not be mentioned), and — if `install-shims` printed a note that `~/.local/bin` is not on their PATH — pass that note along verbatim, since they will need to fix their PATH before the commands work in a shell.

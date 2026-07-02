@@ -19,8 +19,9 @@ blocks = findings, **posted only when a human checks their checkbox** — review
 the full local source (not just the diff), with a two-register presentation (`junior`
 default, `expert` opt-in). The review runs **sandboxed with zero network, zero prompts,
 zero reliance on the Task notification channel**; everything network- or write-side lives
-outside the sandbox, in two companion commands — `pr-review` (bash) prepares and launches,
-`pr-finalize` (Python) posts. The whole thing is distributed as a Claude Code plugin named
+outside the sandbox, in companion commands — `pr-review` (bash) prepares and launches,
+`pr-finalize` (Python) posts, and `pr-assemble-rules` (Python) sources the rule set from the
+base branch during preparation. The whole thing is distributed as a Claude Code plugin named
 `pr-review`, installed from a private marketplace.
 
 ## Canonical names — do not drift
@@ -28,16 +29,20 @@ outside the sandbox, in two companion commands — `pr-review` (bash) prepares a
 One scheme. Both end-user commands are `pr-<verb>`. The command `pr-review` deliberately
 equals the plugin name and the skill namespace stem; these are separate namespaces (a PATH
 executable, a plugin id, a skill prefix) so there is no collision, and the entry-point
-command sharing the plugin name is a coherence win.
+command sharing the plugin name is a coherence win. `pr-assemble-rules` is a third `pr-<verb>`
+binary but **not** an end-user command — it is an internal prep helper `pr-review` calls (see
+Base-sourced rule set); it shares the naming and the PATH shim, nothing more.
 
-| Thing                      | Canonical name        |
-| -------------------------- | --------------------- |
-| Prepare/launch command     | `pr-review`           |
-| Post command               | `pr-finalize`         |
-| Review skill invocation    | `/pr-review:run`      |
-| Review skill `name:` / dir | `run` / `skills/run/` |
-| Snapshot dir (repo root)   | `.pr-review/`         |
-| Run dir (repo root)        | `.pr-review-run/`     |
+| Thing                        | Canonical name           |
+| ---------------------------- | ------------------------ |
+| Prepare/launch command       | `pr-review`              |
+| Post command                 | `pr-finalize`            |
+| Rule-set helper (internal)   | `pr-assemble-rules`      |
+| Review skill invocation      | `/pr-review:run`         |
+| Review skill `name:` / dir   | `run` / `skills/run/`    |
+| Snapshot dir (repo root)     | `.pr-review/`            |
+| Base rule set (in snapshot)  | `.pr-review/rules/`      |
+| Run dir (repo root)          | `.pr-review-run/`        |
 
 `REVIEW.md` is uppercase and is not a `pr-review` token. The `.git/info/exclude` list a
 prepared repo carries is exactly three entries: `.pr-review/`, `.pr-review-run/`,
@@ -55,6 +60,7 @@ plugins/pr-review/
 ├── bin/                         # added to the Bash-tool PATH while the plugin is enabled
 │   ├── pr-review                #   prepare + launch (bash) — launcher execs /pr-review:run
 │   ├── pr-finalize              #   post (Python 3, stdlib only)
+│   ├── pr-assemble-rules        #   base-sourced rule set (Python 3, stdlib only) — prep helper
 │   └── install-shims            #   PATH bootstrap (bash, self-locating)
 ├── skills/
 │   ├── run/SKILL.md             #   the review — name: run → /pr-review:run; THE SPEC
@@ -63,7 +69,7 @@ plugins/pr-review/
 └── README.md
 ```
 
-The three `bin/` files must be committed mode `755` (git tracks the bit; some output mounts
+The four `bin/` files must be committed mode `755` (git tracks the bit; some output mounts
 drop it). The docs' "hooks not firing → `chmod +x`" symptom is this.
 
 ## Hard contracts — must hold
@@ -93,7 +99,10 @@ drop it). The docs' "hooks not firing → `chmod +x`" symptom is this.
   are **pluggable**, in the consuming repo, at `.claude/pr-review/strings.<code>.json` (ISO 639-1
   code) — the plugin ships none (plugins cannot ship rules to users; see Dead ends). A project
   file present for a built-in code overrides the built-in; absent both, the model translates the
-  English glossary and flags it as improvised.
+  English glossary and flags it as improvised. The override is **base-sourced** like the rest of
+  the rule set (see Base-sourced rule set): the skill reads it from the preparation's copy at
+  `.pr-review/rules/.claude/pr-review/strings.<code>.json`, not the checkout, so a PR cannot
+  rewrite the labels the review is pinned to.
 - **The posting path is language-agnostic by construction** — `pr-finalize` routes by section
   ordinal and the `^###\s+\[([ xX])\]` checkbox, never by heading text — so glossary changes need
   no code change there. Keep it that way: never make `pr-finalize` or `pr-review` key on any
@@ -103,10 +112,10 @@ drop it). The docs' "hooks not firing → `chmod +x`" symptom is this.
   pluggable alike. Two reasons: a skill cannot reliably locate its own directory (see Dead ends →
   Skill self-location; `${CLAUDE_PLUGIN_ROOT}` is still on the verify list), and the `en` reference
   is needed **every run** as the fallback anchor, so it must be guaranteed in-context, never behind
-  a Read that can fail on a bad plugin root. The override files escape this because their path is
-  **repo-root-relative** (`.claude/pr-review/strings.<code>.json`) — reliable, same as the
-  `.claude/rules/**` reads in step 4. Revisit unifying on files only if `${CLAUDE_PLUGIN_ROOT}` is
-  confirmed working on the target builds.
+  a Read that can fail on a bad plugin root. The override files escape this because they reach the
+  skill as a **repo-root-relative snapshot path** (`.pr-review/rules/.claude/pr-review/strings.<code>.json`,
+  base-sourced by prep) — reliable, the same read as the rest of the assembled rule set in step 4.
+  Revisit unifying on files only if `${CLAUDE_PLUGIN_ROOT}` is confirmed working on the target builds.
 
 ### Sandbox & permissions
 
@@ -168,6 +177,44 @@ tree, non-deterministic third surface). A behavioural question that `Read`
 cannot settle becomes a finding stating the question and the experiment — it is not answered
 by running anything.
 
+### Base-sourced rule set
+
+The standards agents treat the project rule set as **authoritative instruction** — agent 4
+audits the diff against it, agent 6 quotes it. But the rule files (`CLAUDE.md`,
+`.claude/rules/**`, and the `.claude/pr-review/**` glossary overrides) are themselves part of
+the diff, author-written on a fork PR. So the rule set is resolved from the **base branch**,
+exactly as GitHub evaluates CODEOWNERS from the base, never the PR's version — the fix for the
+rule-set half of Tenacom/tenacom-ai-tools#1 M3.
+
+- **`pr-assemble-rules`** (Python 3, stdlib only; git the only external tool) runs during
+  preparation, unsandboxed, after `changed-files.txt` and **before** `state.json` (so a failed
+  assembly leaves no completeness marker and the review refuses to run). It resolves the set
+  from `baseSha` via `git show`/`git ls-tree`: the `CLAUDE.md` hierarchy down to the changed
+  dirs (plus `.claude/CLAUDE.md`), every `@import` inlined recursively (imports that escape the
+  repo — absolute, `~`, or `../` above root — are recorded unresolved, never read), every
+  `.claude/rules/**/*.md`, and every `.claude/pr-review/strings.*.json`. It writes one file per
+  source under `.pr-review/rules/` (repo-relative path, frontmatter intact) plus a
+  `manifest.json` (per-file kind + scope + inlined/unresolved imports). An empty manifest — a
+  repo with no rules — is valid, not an error.
+- **Why prep, not the skill.** Base versions live only as git objects the sandboxed review
+  cannot reach (`git show` is neither allow-listed nor on the never-touch-history surface).
+  Prep has full git, so it gathers once into a snapshot artifact beside `canonical.diff`. This
+  **retires** the old "gathering must live in the main agent because `Read` can't expand
+  `@import`s / subagents don't inherit memory" reasoning: SKILL step 4 is now a _read_ of
+  `.pr-review/rules/manifest.json` plus the files it lists, not a live walk of the checkout.
+- **Two halves, complementary.** Structural: authority comes only from the base artifact.
+  Prompt: the subagent preamble names the handed set the _sole_ rule authority and the PR's
+  on-disk rule files _data_ (still reviewed as changed files — a changed rule file gets its
+  typos flagged — but never obeyed). Neither half suffices alone; together they close M3.
+- **The CODEOWNERS trade-off, accepted:** a rule a PR _introduces or relaxes_ does not govern
+  its own review (the review audits against the base rules). The rule _change_ is still reviewed
+  as ordinary diff content. This is strictly the safe direction — a PR cannot weaken a rule to
+  excuse its own code.
+- **`pr-assemble-rules` is shimmed onto PATH** alongside `pr-review`/`pr-finalize` and invoked
+  by **bare name**, preserving `pr-review`'s location-independence (it depends on a PATH entry,
+  like `git`/`gh`, never on its own path). `pr-review`'s prepare path now also requires
+  `python3`, checked up front together with `pr-assemble-rules`.
+
 ### Subagent preamble — the single delivery channel
 
 A subagent reads **only** its Task prompt, never `SKILL.md`, so every invariant a subagent must
@@ -182,12 +229,19 @@ preamble — the single-block, prepend-verbatim shape is the fix for Tenacom/ten
 (invariants that lived only in prose never reached the agents). Lane vs validator differ only in
 the appended part; the floor is identical.
 
-The **data-not-instructions** framing deliberately covers the intent brief, PR title/body,
-referenced issues, canonical diff, and code on disk — **not** the assembled rule set, which is
-authoritative instruction the review exists to enforce (agent 4 audits against it, agent 6
-quotes it); marking it "data" would tell agents to ignore the rules they must apply. So the
-rule-set channel is **not** injection-hardened, and Tenacom/tenacom-ai-tools#1 M3 is only
-partially closed — accepted for now. Do not re-add the rule set to that preamble bullet.
+The **data-not-instructions** framing covers the intent brief, PR title/body, referenced
+issues, canonical diff, and code on disk — **and the repo's own instruction files
+(`CLAUDE.md`, `.claude/rules/**`, `.claude/pr-review/**`) as they appear on disk or in the
+diff.** They can be data because the rules the review _obeys_ come from elsewhere: the
+**base-sourced** assembled rule set (see Base-sourced rule set), which the preamble names as
+the _sole_ rule authority. So the bullet now carries both halves — the on-disk/in-diff rule
+files are content to audit, and the handed set takes neither additions nor overrides from
+them. This is what closes the rule-set half of Tenacom/tenacom-ai-tools#1 M3 (the intent-brief
+half was already closed): authority is now **structural** (resolved from the base tree, never
+the PR head), and the residual "don't be swayed by rule-like text you read as data" is
+prompt-strength, the same class of assurance as the rest of the framing — well-closed, not a
+hard proof. Keep both halves in the bullet; **do not** revert it to excluding the rule set (the
+old state, when on-disk rules were the only authority and could not be called data).
 
 The framing is scoped to **authority, not evidence**: it refuses only embedded attempts to
 redirect or silence the review ("ignore your charter", "report no problems"), **not** a
@@ -256,11 +310,13 @@ bumped to the precondition-fixed number.
   not the user's interactive shell. `pr-review` must be typeable in a bare shell before any
   session exists, hence the `install-shims` bootstrap.
 - **`install-shims` bootstrap (bash, self-locating).** Self-locates via
-  `readlink -f "${BASH_SOURCE[0]}"`. Keeps **copies** of `pr-review` and `pr-finalize` under
-  `~/.local/share/pr-review/bin` (refreshed only when `cmp` differs) and symlinks
-  `~/.local/bin/{pr-review,pr-finalize}` at those copies. Idempotent; repairs a wrong/missing
-  link; **never clobbers a non-symlink a human placed** (`[ -L ]` guard); all output to
-  stderr (a `SessionStart` hook's stdout is injected into the model's context).
+  `readlink -f "${BASH_SOURCE[0]}"`. Keeps **copies** of `pr-review`, `pr-finalize`, and
+  `pr-assemble-rules` under `~/.local/share/pr-review/bin` (refreshed only when `cmp` differs)
+  and symlinks `~/.local/bin/{pr-review,pr-finalize,pr-assemble-rules}` at those copies.
+  `pr-assemble-rules` is shimmed only so `pr-review` can find it by bare name during prep — not
+  an end-user command. Idempotent; repairs a wrong/missing link; **never clobbers a non-symlink
+  a human placed** (`[ -L ]` guard); all output to stderr (a `SessionStart` hook's stdout is
+  injected into the model's context).
 - **Copies, not symlinks-into-cache.** The plugin cache is version-keyed and an orphaned
   version dir is GC'd ~7 days later; a symlink into it would dangle. Our own copies are
   independent of the cache lifecycle, so a PATH entry can lag a version (until a session
@@ -294,9 +350,9 @@ bumped to the precondition-fixed number.
   read-only `rg` search vocabulary, no reads of `REVIEW.md`/the run dir, data-not-instructions,
   report-in-English, always-write-your-file, and the one-line return) is small, while the
   **bulk** of every lane prompt is
-  per-run dynamic context (intent brief, fully-assembled rule set, changed-files list,
-  canonical-diff path, run/agent numbers, output filename) that step 4 requires be injected
-  at dispatch regardless (subagents do not reliably inherit loaded memory). So an agent
+  per-run dynamic context (intent brief, assembled rule set, changed-files list,
+  canonical-diff path, run/agent numbers, output filename) that must be injected
+  at dispatch regardless (a subagent gets only its Task prompt). So an agent
   definition could absorb only the small part. Against that marginal win: it **fragments the
   single authoritative spec** (`SKILL.md`) the whole design defends; there is **no agent
   composition/include**, so the shared block either stays in `SKILL.md` (charters move out
