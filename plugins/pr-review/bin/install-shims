@@ -1,10 +1,16 @@
 #!/usr/bin/env bash
-# install-shims — put `pr-review` and `pr-finalize` on the user's PATH.
+# install-shims — put `pr-review`, `pr-finalize`, and `pr-assemble-rules` on the PATH.
 #
-# This plugin ships the two real scripts in its bin/ directory, which Claude Code
-# adds to the Bash tool's PATH while the plugin is enabled — but NOT to your
-# interactive shell's PATH, and `pr-review` must be typeable in a bare shell
-# before any session exists. This script bridges that gap.
+# This plugin ships the real scripts in its bin/ directory, which Claude Code adds to
+# the Bash tool's PATH while the plugin is enabled — but NOT to your interactive
+# shell's PATH, and `pr-review` must be typeable in a bare shell before any session
+# exists. This script bridges that gap.
+#
+# `pr-review` and `pr-finalize` are the two end-user commands; `pr-assemble-rules` is
+# an internal helper `pr-review` invokes during preparation (it resolves the review's
+# rule set from the base branch). It must be on the same PATH so `pr-review` can find
+# it by bare name — `pr-review` is deliberately location-independent — hence it is
+# shimmed alongside the two, not called by path.
 #
 # It is run three ways, all equivalent:
 #   - once at install, explicitly:  claude -p /pr-review:install-shims
@@ -35,7 +41,7 @@ here="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 
 store="$HOME/.local/share/pr-review/bin"   # stable home for the on-PATH copies
 bindir="$HOME/.local/bin"                   # where the commands must be typeable
-cmds=(pr-review pr-finalize)
+cmds=(pr-review pr-finalize pr-assemble-rules)
 
 mkdir -p "$store" "$bindir"
 
@@ -70,7 +76,7 @@ done
 # A status line (stderr): visible to the human on the explicit `claude -p` run,
 # routed to the debug log (not Claude's context) under the hook.
 if [[ "$changed" -eq 1 ]]; then
-  printf 'install-shims: pr-review and pr-finalize are linked in %s.\n' "$bindir" >&2
+  printf 'install-shims: pr-review, pr-finalize and pr-assemble-rules are linked in %s.\n' "$bindir" >&2
 else
   printf 'install-shims: already current; nothing to do.\n' >&2
 fi
