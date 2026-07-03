@@ -13,14 +13,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changes to existing features
 
+### Bugs fixed in this release
+
+### Known problems introduced by this release
+
+## [1.0.3](https://github.com/Tenacom/tenacom-ai-tools/releases/tag/pr-review/1.0.3) (2026-07-03)
+
+### Changes to existing features
+
 - The sandboxed review no longer makes the whole working tree read-only to shell commands — only `.git` and the review's own snapshot and run directories stay read-only. This walks back part of the 1.0.2 hardening (see the fix below for why it had to), but the protection that matters is unchanged: executed commands still cannot plant a git hook or tamper with the review's inputs and reports. `REVIEW.md` and the rest of the working tree become writable to shell commands, which is inert in practice — the review runs no project code and its own shell use is read-only search.
 - The review's captured GitHub snapshot and `.git` are now immutable to the review itself, not just to the commands it runs: the file-editing tools are blocked from writing there, closing the path by which a crafted pull request could try to steer the review into rewriting the very diff and rules it is judged against. The review's own working area (its report files and `REVIEW.md`) stays writable.
 
 ### Bugs fixed in this release
 
 - The sandboxed review could fail to start on any repository without a `.gitconfig` at its root — every shell command aborted, which looked like `git` failing even though git was never involved. It was the operating-system sandbox refusing to initialise against a fully read-only working tree; the review no longer marks the whole tree read-only.
-
-### Known problems introduced by this release
 
 ## [1.0.2](https://github.com/Tenacom/tenacom-ai-tools/releases/tag/pr-review/1.0.2) (2026-07-03)
 

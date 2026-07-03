@@ -10,6 +10,7 @@ Please refer to each plugin's `CHANGELOG.md` file for details.
 
 ## 2026-07-03
 
+- Updated `pr-review` to version 1.0.3
 - Updated `pr-review` to version 1.0.2
 
 ## 2026-06-30
