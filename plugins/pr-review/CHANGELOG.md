@@ -13,7 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changes to existing features
 
+- The sandboxed review no longer makes the whole working tree read-only to shell commands — only `.git` and the review's own snapshot and run directories stay read-only. This walks back part of the 1.0.2 hardening (see the fix below for why it had to), but the protection that matters is unchanged: executed commands still cannot plant a git hook or tamper with the review's inputs and reports. `REVIEW.md` and the rest of the working tree become writable to shell commands, which is inert in practice — the review runs no project code and its own shell use is read-only search.
+
 ### Bugs fixed in this release
+
+- The sandboxed review could fail to start on any repository without a `.gitconfig` at its root — every shell command aborted, which looked like `git` failing even though git was never involved. It was the operating-system sandbox refusing to initialise against a fully read-only working tree; the review no longer marks the whole tree read-only.
 
 ### Known problems introduced by this release
 

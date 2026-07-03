@@ -126,13 +126,37 @@ drop it). The docs' "hooks not firing → `chmod +x`" symptom is this.
   - **`failIfUnavailable: true`** — a sandbox that cannot start is a hard stop, never a silent
     unsandboxed run. The launcher also preflights the Linux/WSL2 deps (`bwrap`, `socat`) for a clear
     message, and because a Claude Code predating the flag would ignore it.
-  - **`sandbox.filesystem.denyWrite: ["<repo-root>"]`** — the whole tree is read-only to **Bash and
-    its children**. This is the real replacement for name-denying interpreters: execution is made
-    _harmless_ (executed PR code cannot alter the snapshot, the run files, `REVIEW.md`, or `.git` — no
-    planted hook) rather than _blocked_. It costs the review nothing: its Bash is read-only (search +
-    `git rev-parse`/`merge-base`), and **`Read`/`Edit`/`Write` bypass the sandbox** (they go through
-    permissions), so the agents still write `REVIEW.md` and the run dir. The launcher injects the repo
-    root via a `@@TOP@@` placeholder, since the settings heredoc is quoted.
+  - **`sandbox.filesystem.denyWrite: ["<repo-root>/.git", "<repo-root>/.pr-review", "<repo-root>/.pr-review-run"]`**
+    — the integrity-critical paths are read-only to **Bash and its children**. This is the real
+    replacement for name-denying interpreters: execution is made _harmless_ (executed PR code cannot
+    alter `.git` — no planted hook — nor the review's own snapshot and run directories) rather than
+    _blocked_. It costs the review nothing: its Bash is read-only (search + `git rev-parse`/`merge-base`),
+    it never executes PR code (the never-execute rule), and **`Read`/`Edit`/`Write` bypass the sandbox**
+    (they go through permissions), so the agents still write `REVIEW.md` and the run dir. The launcher
+    injects the repo root into each path via a `@@TOP@@` placeholder, since the settings heredoc is quoted.
+  - **Why not the whole tree.** An earlier version denied `["<repo-root>"]` outright, and it **broke
+    every Bash call** on any repo lacking a `~/`-style hardened dotfile at the root. Independently of
+    our settings, bubblewrap read-only-binds a set of hardened dotfiles (`.gitconfig` and kin) _over the
+    working directory_; to bind one whose mount point is absent it must first create the mount point, and
+    inside a read-only-bound working tree that create fails (`Can't create file … Read-only file system`),
+    aborting the sandbox **before any command runs** — so the failure looks like "all git commands fail"
+    but git never runs. Leaving the working tree writable lets those mount points be created. The trade:
+    Bash could now write elsewhere in the working tree (including `REVIEW.md`), but the never-execute
+    rule plus the read-only review vocabulary make that inert, and the three integrity-critical paths
+    above stay protected. **`REVIEW.md` is deliberately not denied** — it may not exist on a first run,
+    and denying an absent path would ro-bind a phantom mount point and reintroduce the very abort. Each
+    denied path, by contrast, is created by prep before launch, so it ro-binds an existing inode
+    (`denyWrite` on a plain file is fine — bwrap ro-binds a file inode as readily as a directory). Do
+    **not** re-add `<repo-root>` (or `REVIEW.md`) to `denyWrite`.
+  - **Worktrees and submodules — the `.git` denial still holds, via a different layer.** In a linked
+    worktree or a submodule, `<repo-root>/.git` is not a directory but a **file** pointing at a git dir
+    that lives _outside_ the working tree (`<main>/.git/worktrees/<name>`, `<super>/.git/modules/<name>`).
+    Denying the pointer file is harmless but near-pointless there; what actually protects the real git
+    dir is the sandbox's **read-only-by-default** posture — everything outside the writable working dir
+    is already read-only, and the real git dir is outside it. So `.git` stays protected in both shapes,
+    just by our explicit deny in a normal clone (where `.git` sits _inside_ the writable tree) and by the
+    default elsewhere. This is not a regression: the old `["<repo-root>"]` never covered an external git
+    dir either. No need to also deny `--git-common-dir` — it is redundant with the read-only default.
   - **`sandbox.credentials` — declined, not an oversight.** It only gates sandboxed Bash (not the
     `Read` tool), and with `denyWrite` + sealed egress a secret read is inert (copy it to `/tmp` — so
     what). Enumerating secret files is the same anti-pattern as the interpreter deny list; a user who

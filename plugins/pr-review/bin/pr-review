@@ -61,13 +61,20 @@ die() { printf 'pr-review: %s\n' "$*" >&2; exit 1; }
 # (.claude/settings.local.json is never touched). What each layer is really for:
 #   - sandbox: OS-level containment (bubblewrap on Linux/WSL2, Seatbelt on macOS) — the real
 #     boundary. failIfUnavailable makes a sandbox that cannot start a hard stop, never a silent
-#     unsandboxed run. filesystem.denyWrite scopes the whole repo root read-only for Bash and its
-#     children; the review's Bash is read-only anyway (search + git rev-parse/merge-base), and
-#     Read/Edit/Write bypass the sandbox, so agents still write REVIEW.md and the run dir while
-#     executed PR code can alter nothing — snapshot, run files, or .git (no planted hook). Egress is
-#     sealed by the network proxy (no domain allowed), independent of the deny list. sandbox.credentials
-#     is deliberately NOT set: with no egress and denyWrite, a secret read is inert, and a user who
-#     needs it sets it globally where it merges in.
+#     unsandboxed run. filesystem.denyWrite scopes the integrity-critical paths read-only for Bash
+#     and its children — .git (no planted hook) plus the review's own snapshot (.pr-review) and run
+#     (.pr-review-run) directories, so executed PR code can alter none of them. It does NOT deny the
+#     whole repo root: bubblewrap read-only-binds a set of hardened dotfiles (.gitconfig and kin) over
+#     the working dir, and to bind one it must create the mount point if absent — inside a read-only
+#     working tree that create fails ("Read-only file system"), aborting the sandbox before any command
+#     runs, so EVERY Bash call dies. Leaving the working tree writable lets those mount points be
+#     created; the review's own Bash is read-only anyway (search + git rev-parse/merge-base), it never
+#     executes PR code (SKILL never-execute rule), and Read/Edit/Write bypass the sandbox so agents
+#     still write REVIEW.md and the run dir. REVIEW.md is intentionally not in denyWrite — it may not
+#     exist yet on a first run, and denying an absent path would reintroduce the same phantom-mount
+#     abort. Egress is sealed by the network proxy (no domain allowed), independent of the deny list.
+#     sandbox.credentials is deliberately NOT set: with no egress and denyWrite, a secret read is inert,
+#     and a user who needs it sets it globally where it merges in.
 #   - permissions: the search allow list, and a deny list kept to capabilities a name can COMPLETELY
 #     deny — WebFetch/WebSearch and gh (the pre-authenticated GitHub-write path). We do NOT deny code
 #     execution by name: that match is unwinnable (python, ruby, make, shebang'd ./vendor/bin/phpunit,
@@ -78,7 +85,10 @@ die() { printf 'pr-review: %s\n' "$*" >&2; exit 1; }
 #     command the static analyzer cannot parse (shell expansions, substitutions, brace/ANSI-C strings),
 #     pure friction in an unattended review. A hook's "allow" never overrides a deny, so it cannot
 #     weaken the gh/web denials. The heredoc is quoted (<<'JSON') so inner quotes need no escaping; the
-#     one dynamic value — the repo root in denyWrite — rides in as @@TOP@@, substituted in launch_review.
+#     one dynamic value — the repo root in the denyWrite paths — rides in as @@TOP@@, substituted in
+#     launch_review. Each denied path (.git, .pr-review, .pr-review-run) exists by the time the review
+#     launches — prep creates all three — so denying them ro-binds an existing inode, never a phantom
+#     mount point.
 SANDBOX_SETTINGS="$(cat <<'JSON'
 {
   "sandbox": {
@@ -87,7 +97,7 @@ SANDBOX_SETTINGS="$(cat <<'JSON'
     "allowUnsandboxedCommands": false,
     "failIfUnavailable": true,
     "filesystem": {
-      "denyWrite": [ "@@TOP@@" ]
+      "denyWrite": [ "@@TOP@@/.git", "@@TOP@@/.pr-review", "@@TOP@@/.pr-review-run" ]
     }
   },
   "permissions": {
@@ -160,9 +170,10 @@ launch_review() {
   local prompt="/pr-review:run"
   if [[ -n "$register" ]]; then prompt="/pr-review:run $register"; fi
   require_sandbox_deps
-  # denyWrite carries the repo root as a @@TOP@@ placeholder (the settings heredoc is quoted); fill
-  # it in now that $top is known. It scopes only Bash + children read-only; Read/Edit/Write bypass
-  # the sandbox, so the agents still write REVIEW.md and the run dir.
+  # denyWrite carries the repo root as a @@TOP@@ placeholder in each path (the settings heredoc is
+  # quoted); fill it in now that $top is known. It scopes only Bash + children read-only, and only for
+  # .git and the review's snapshot/run dirs; Read/Edit/Write bypass the sandbox, so the agents still
+  # write REVIEW.md and the run dir.
   local settings="${SANDBOX_SETTINGS//@@TOP@@/$top}"
   log "launching sandboxed review session: claude \"$prompt\""
   # Effort is pinned here, not in skill frontmatter: the env var beats every
