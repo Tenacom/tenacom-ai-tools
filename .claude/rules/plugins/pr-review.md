@@ -182,6 +182,17 @@ drop it). The docs' "hooks not firing → `chmod +x`" symptom is this.
   (the run-directory design), and `REVIEW.md` stays writable because it is the output. The patterns are
   **project-root-relative** (`/.pr-review/**`, not an absolute path) — the simple, documented form,
   resolved against the session cwd, which the launcher guarantees is the repo root.
+  - **In a worktree or submodule the tool-side `.git` deny is narrower than the sandbox-side one** — and
+    that is fine. Being project-root-relative, `/.git/**` pins only the in-tree `.git` **pointer file**;
+    it does not reach the real git dir, which lives _outside_ the working tree (see the worktree note
+    above). So there the snapshot's tool-side immutability still holds (`.pr-review/` is always in-tree),
+    but `.git`'s tool-side protection collapses to the pointer, and the real git dir rests solely on the
+    sandbox's read-only-by-default posture — exactly as it did before this deny existed. Not a regression
+    (there was **no** tool-side protection before), and reaching the external git-common-dir would take an
+    agent deliberately targeting an absolute path it would have to know; the sandbox default already
+    covers that for Bash. Pinning the external dir tool-side would mean resolving `--git-common-dir` at
+    launch and threading it in — deliberately not done, for the same "redundant with the read-only
+    default" reason the sandbox side gives.
 - The **PreToolUse `Bash` hook** unconditionally allows Bash, working around
   anthropics/claude-code#43713 — `autoAllowBashIfSandboxed` falls back to a permission prompt for any
   command the static analyzer cannot parse (shell expansions, substitutions, brace/ANSI-C strings),
