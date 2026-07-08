@@ -1,43 +1,68 @@
-# `pr-review` — sandboxed PR review for Claude Code
+# `pr-review` — AI-drafted, human-curated review for GitHub PRs
 
-An AI-assisted PR-review pipeline, built on Claude Code and shipped as a plugin.
+An AI-assisted PR-review pipeline for GitHub repositories, built on Claude Code and shipped as a plugin.
 
-A six-agent parallel review reads the PR against the **full local source** — not just the diff — and writes its findings to a structured `REVIEW.md`. You curate that file by hand, then post the result to GitHub as a single review object.
+Human review is thorough but slow; AI review is fast but flawed. `pr-review` does not try to automate review away — it splits the work where each side is strongest. The AI does the heavy lifting: reading, cross-checking, drafting findings into a structured `REVIEW.md`. You make every call that matters: nothing reaches GitHub until you tick it. Each known weakness of AI review gets a structural answer, not a promise:
 
-The review itself runs **sandboxed, with zero network and zero prompts**: everything it needs from GitHub is captured up front into a snapshot, so the part that reads attacker-influenceable text (fork PRs included) can touch nothing.
+| _AI review tends to…_                 | _`pr-review` answers with…_                                                                                   |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| miss findings on a single pass        | idempotent re-runs: new findings stack into `REVIEW.md`, duplicates merge, curation survives                  |
+| judge the diff out of context         | a review run inside the repository, against the full checkout                                                 |
+| hallucinate problems                  | human curation as the core primitive: unchecked findings post nothing                                         |
+| write odd, needlessly technical prose | fixed wording instructions, plus a `junior` register that explains and an `expert` one that gets to the point |
 
-The plugin ships four moving parts:
+One more property matters when the PR comes from a stranger: the part that reads attacker-influenceable text runs sandboxed, with zero network access and zero prompts — its entire GitHub context is a snapshot taken beforehand.
 
-- **`pr-review`** — a terminal command (self-contained bash). Prepares the PR branch (fetch, snapshot, recreate base, `gh pr checkout`, rebase, confirmed force-push) and launches the sandboxed review session. Run from a repository root.
-- **the `run` skill** — the review itself: the prompt, the six lanes, the validation pass, and the exact `REVIEW.md` grammar. Invoked as `/pr-review:run`, inside the sandbox. **This skill's `SKILL.md` is the spec** for everything about `REVIEW.md`'s format; this README is only an overview.
-- **`pr-finalize`** — a terminal command (self-contained Python 3). Posts the curated `REVIEW.md` to GitHub as one review object. Run from a repository root.
-- **`install`** — a one-time setup step (`/pr-review:install`) that puts the two commands on your PATH. See _Installation_.
+---
 
-The two commands share no code. They meet at a file contract: the preparation snapshot under `.pr-review/`, plus a `posted.md` marker under `.pr-review-run/` once a review is posted.
+- [The short version](#the-short-version)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Reviewing a PR](#reviewing-a-pr)
+  - [Prepare and review](#prepare-and-review)
+  - [Curate `REVIEW.md`](#curate-reviewmd)
+  - [Preview, then post](#preview-then-post)
+  - [Re-runs and re-preparation](#re-runs-and-re-preparation)
+- [How it works](#how-it-works)
+  - [The moving parts](#the-moving-parts)
+  - [Why the split](#why-the-split)
+  - [Artifacts](#artifacts)
+- [Language support](#language-support)
+- [Updating and uninstalling](#updating-and-uninstalling)
+- [Reference](#reference)
 
-## At a glance
+---
 
-Once installed (see _Installation_), a review is three steps, all from a repository root:
+## The short version
+
+Once [installed](#installation), a review is three steps, all from a repository root:
 
 ```bash
 pr-review 142     # prepare the PR and run the sandboxed review → writes REVIEW.md
-                  # …then curate REVIEW.md by hand: tick the findings worth posting…
+                  # …then curate REVIEW.md by hand:
+                  #   - tick the findings worth posting
+                  #   - adjust wording if desired
 pr-finalize       # post the curated review to GitHub
 ```
 
-The rest of this README explains each step; _How a review goes_ has the detail.
+[Reviewing a PR](#reviewing-a-pr) explains each step in detail.
+
+---
 
 ## Requirements
 
-- **git** and the **GitHub CLI (`gh`)**, authenticated (`gh auth login`) with a default repo set (`gh repo set-default`, pointed at the upstream). Needed by `pr-review`'s preparation and by `pr-finalize`.
-- **`claude`** (Claude Code CLI) on `PATH`. Needed to launch the review and to install the plugin.
-- **`python3`** — standard on our Ubuntu/WSL targets. Needed by `pr-finalize`, which builds the API payload with the standard library (no `jq` dependency).
-- **`bash`** to run `pr-review` and the setup step — both are portable bash; no runtime beyond the tools above.
-- **`~/.local/bin` on your `PATH`** — the setup step installs the two commands there. Debian/Ubuntu add this directory to `PATH` automatically (via the default `~/.profile`, once it exists); other distros vary, and minimal setups may need it added by hand. The `command -v` check under _Installation_ is the real test.
+- **Linux**, native or under WSL2, with **`bwrap`** (bubblewrap) and **`socat`** available for the sandbox. `pr-review` checks for both up front.
+- **git** and the **GitHub CLI (`gh`)**, authenticated (`gh auth login`) with a default repo set (`gh repo set-default`, pointed at the upstream).
+- **Claude Code CLI** (`claude`) on `PATH`.
+- **`python3`**, standard on most popular distros. Used during preparation to assemble the rule set, and by `pr-finalize` to build the API payload.
+- **`bash`**. Both `pr-review` and the setup step are portable bash, with no runtime beyond the tools above.
+- **`~/.local/bin` on your `PATH`**. The setup step installs the commands there. Debian and Ubuntu add this directory to `PATH` automatically (via the default `~/.profile`, once the directory exists); other distros vary, and minimal setups may need it added by hand. The `command -v` check under [Installation](#installation) is the real test.
+
+---
 
 ## Installation
 
-This plugin lives in the **`tenacom-ai-tools`** marketplace — the [Tenacom/tenacom-ai-tools](https://github.com/Tenacom/tenacom-ai-tools) repository. In a terminal, register the marketplace, install the plugin, then put its commands on your PATH:
+This plugin lives in the **`tenacom-ai-tools`** marketplace — the [Tenacom/tenacom-ai-tools](https://github.com/Tenacom/tenacom-ai-tools) repository. In a terminal, register the marketplace, install the plugin, then put its commands on your `PATH`:
 
 ```bash
 claude plugin marketplace add Tenacom/tenacom-ai-tools
@@ -45,57 +70,157 @@ claude plugin install pr-review@tenacom-ai-tools
 claude -p /pr-review:install
 ```
 
-The first line registers this repository as a Claude Code plugin marketplace — a one-time step per machine. The second installs the plugin and its skills. The third puts the `pr-review` and `pr-finalize` commands on your PATH: it creates two symlinks in `~/.local/bin`, backed by copies it keeps under `~/.local/share/pr-review/bin`. A `SessionStart` hook re-runs the same step on later sessions, so the commands stay current after a plugin update — you only run the third line once.
+- The first line registers the repository as a Claude Code plugin marketplace; it is a one-time step per machine.
+- The second line installs the plugin and its skills.
+- The third line is a required post-installation step: it creates symlinks in `~/.local/bin` for `pr-review`, `pr-finalize`, and the internal `pr-assemble-rules` helper, backed by copies kept under `~/.local/share/pr-review/bin`. A `SessionStart` hook re-runs the same step on later sessions, so the commands stay current after a plugin update; you only run the third line once.
 
-Make sure `~/.local/bin` is on your `PATH`. Debian/Ubuntu add it via the default `~/.profile` once the directory exists — but only in a **new login shell**, so start one after the first install; other distros may need it added by hand. Verify:
+> [!TIP]
+>
+> If you get billed separately for headless Claude Code usage, running the post-installation step in an interactive session is a more budget-savvy choice.
+>
+> - Type `claude /pr-review:install` (without `-p`) in your terminal to execute the command in an interactive Claude Code session.
+> - When the command is done, exit the CLI with `/exit`.
+
+Make sure `~/.local/bin` is on your `PATH`. Debian and Ubuntu add it via the default `~/.profile` once the directory exists, but only in a **new login shell**, so you need to log out and back in if `~/.local/bin` did not exist prior to installation (or run `source ~/.profile` to fix the current shell without logging out).
+
+To verify whether the plugin's commands are accessible, type the following in your terminal:
 
 ```bash
 command -v pr-review pr-finalize
 ```
 
-## How a review goes
+---
 
-1. **Prepare and review.** From a repository root, in a terminal:
+## Reviewing a PR
 
-   ```bash
-   pr-review 142            # default "junior" register
-   pr-review 142 expert     # "expert" register
-   ```
+### Prepare and review
 
-   The _register_ sets the review's tone: `junior` (the default) explains more, `expert` is more concise.
+From a repository root, in a terminal:
 
-   This prepares `pr/142`: it checks out the branch, rebases it, and — only if the rebase rewrote the branch — asks at the terminal before force-pushing, so the PR head on GitHub matches what you review. It then captures the GitHub snapshot into `./.pr-review/` and launches an interactive sandboxed `claude` session running `/pr-review:run`. The review reads the snapshot and the checkout, runs its six lanes plus a validation pass, and writes `REVIEW.md` at the repo root. It makes no network calls.
+```bash
+pr-review 142            # default "junior" register
+pr-review 142 expert     # "expert" register
+```
 
-   To prepare without reviewing — to inspect the tree first — use `pr-review prepare 142`, then review later with `pr-review 142` or, from an already-open session on the prepared branch, `/pr-review:run`.
+The _register_ sets the review's tone: `junior` (the default) explains more, `expert` is more concise.
 
-2. **Curate `REVIEW.md`.** The file's body is the PR-level comment; each `###` block is one finding, with an unchecked `[ ]` checkbox. **Nothing posts until you check it.** Tick the findings worth posting (`[x]`), edit prose or section labels as you like, and leave the rest unchecked — unchecked findings stay in the file as a record and post nothing.
+This prepares `pr/142`: it checks out the branch, rebases it, and, only if the rebase rewrote the branch, asks at the terminal before force-pushing, so the PR head on GitHub matches what you review. It then captures the GitHub snapshot into `./.pr-review/` and launches an interactive sandboxed `claude` session running `/pr-review:run`. The review reads the snapshot and the checkout, runs its six lanes plus a validation pass, and writes `REVIEW.md` at the repo root. It makes no network calls.
 
-3. **Preview, then post.** From the repository root:
+To prepare without reviewing, say to inspect the tree first, use `pr-review prepare 142`; then review later with `pr-review 142` or, from an already-open session on the prepared branch, `/pr-review:run`.
 
-   ```bash
-   pr-finalize --dry-run    # parse, route, print the exact payload — posts nothing
-   pr-finalize              # post the review, after a recap and a terminal confirmation
-   ```
+### Curate `REVIEW.md`
 
-   Checked findings under Problems or Observations that sit on changed lines post as inline comments. Everything else is _folded_ — merged into the PR-level body under its section label. The verdict follows from your curation: with **no** checked finding it posts an **approval**; with **any** checked finding — in any section — it **requests changes** (the checkbox, not the section, decides). Before prompting, `pr-finalize` prints a per-section recap (checked / unchecked / total), so a half-read `REVIEW.md` is visible, and an approval takes a second confirmation. On success it leaves a `posted.md` marker that closes the preparation.
+The review's whole output is one Markdown file, `REVIEW.md`, at the repository root. It is a draft, not a verdict: **nothing in it reaches GitHub until you approve it, finding by finding**. You curate by editing the file in place, with any editor. Trimmed to the bone, a fresh `REVIEW.md` looks like this:
+
+```markdown
+The change does what the PR says, with one problem in the way: the detail
+page no longer opens after the route move.
+
+**Status:**
+
+| Requirement / Declared change | Outcome | Note |
+| --- | --- | --- |
+| Detail page on its own route | ⚠️ Partial | Unreachable, see app-routing.module.ts L34 |
+
+## Problems
+
+### [ ] 1 1 [app-routing.module.ts L34](./src/app/app-routing.module.ts#34)
+
+The route becomes `user-cms/:id`, so the id now travels in the path — but the
+component still reads it from the query string, so `id` stays `0` and the
+"missing id" guard fires.
+
+Read the path param with `paramMap.get('id')`.
+
+## Observations
+
+### [ ] 1 5
+
+The PR says "Fixes #839", but the detail page still depends on the service
+that issue wants gone. Bring that into this PR, or drop the "Fixes" and open
+a follow-up?
+
+## Pre-existing
+```
+
+Three layers:
+
+- **The body** — everything above the first heading — is the future PR-level review comment: a short verdict, then a status table matching what the PR declares against what the diff delivers.
+- **The three `##` sections** — Problems, Observations, Pre-existing, written in the PR's language — classify the findings. All three are always present, even when empty (Pre-existing is, above).
+- **Each `###` block is one finding**: the heading carries its metadata, and the prose below it is the comment that would post.
+
+The `###` headings follow a fixed format. Reading the first one above, left to right:
+
+```text
+### [ ] 1 1 [app-routing.module.ts L34](./src/app/app-routing.module.ts#34)
+     │  │ │ └─ location: file basename + line range, linking to the code
+     │  │ └─── agent number: which of the six review lanes found it
+     │  └───── run number: which review run produced it
+     └──────── the checkbox: your approval, and the only thing that posts
+```
+
+The run and agent numbers are provenance — together with the location they identify the finding across re-runs; you never edit them. The location link opens the offending line straight from your editor. It is present only when the finding points at a specific place in the code: a cross-cutting finding — like the "Fixes #839" question above — has no single line to point at, so its heading simply ends at the agent number, and when checked it posts into the PR-level comment instead of inline.
+
+Curation itself is a handful of gestures:
+
+- **Tick what should post.** Turn `[ ]` into `[x]` on each finding worth sending. This is the only action required: the review always delivers every checkbox unchecked, and checking is exclusively your act.
+- **Leave the rest unchecked — don't delete.** An unchecked finding posts nothing, ever, and it stays in the file as a record: on a re-run, findings already present are left untouched, so a rejected finding does not come back to be re-litigated.
+- **Edit freely below the headings.** The verdict, the table, and each finding's prose are yours to reword, shorten, or fix. You can also reorder findings within a section (order is the only priority signal) and relabel a `##` heading — its text is used verbatim as the group label when its checked findings fold into the PR-level comment.
+- **Leave the structure alone.** Don't delete a `##` heading, even over an empty section — sections are identified by position, so removing one would misroute everything below it. And don't rework a `###` heading's checkbox, numbers, or link: that line is the grammar `pr-finalize` parses.
+
+The full grammar, with a complete worked example, lives in the `run` skill's [`SKILL.md`](skills/run/SKILL.md); how checked findings turn into an actual GitHub review is the next step.
+
+### Preview, then post
+
+From the repository root:
+
+```bash
+pr-finalize --dry-run    # parse, route, print the exact payload — posts nothing
+pr-finalize              # post the review, after a recap and a terminal confirmation
+```
+
+Checked findings under Problems or Observations that sit on changed lines post as inline comments. Everything else is _folded_: merged into the PR-level body under its section label. The verdict follows from your curation: with **no** checked finding it posts an **approval**; with **any** checked finding, in any section, it **requests changes**. The checkbox, not the section, decides. Before prompting, `pr-finalize` prints a per-section recap (checked / unchecked / total), so a half-read `REVIEW.md` is visible; an approval takes a second confirmation. On success it leaves a `posted.md` marker that closes the preparation.
 
 ### Re-runs and re-preparation
 
 Within one preparation, re-running the review **stacks onto** `REVIEW.md` rather than overwriting it: findings already present are left untouched (checked or not, however you moved or edited them), and new ones are inserted **unchecked**. Because only checked blocks post, anything the merge gets wrong has no effect until you approve it.
 
-A finalized preparation is closed: a second `pr-finalize` refuses, and so does a re-review. To start over against the current head, **re-prepare** — delete `REVIEW.md` and run `pr-review 142` again. Re-preparation wipes the snapshot, the run directory, and the marker.
+A finalized preparation is closed: a second `pr-finalize` refuses, and so does a re-review. To start over against the current head, **re-prepare**: delete `REVIEW.md` and run `pr-review 142` again. Re-preparation wipes the snapshot, the run directory, and the marker.
+
+---
+
+## How it works
+
+### The moving parts
+
+The commands you run yourself, from a repository root:
+
+- **`pr-review`**, a terminal command (self-contained bash). Prepares the PR branch (fetch, snapshot, recreate base, `gh pr checkout`, rebase, confirmed force-push) and launches the sandboxed review session.
+- **`pr-finalize`**, a terminal command (self-contained Python 3). Posts the curated `REVIEW.md` to GitHub as one review object.
+- **`install`**, a one-time setup step (`/pr-review:install`) that puts the two commands on your `PATH`. See [Installation](#installation).
+
+And the parts `pr-review` drives for you, not meant to be invoked directly:
+
+- **The `run` skill**: the review itself — the prompt, the six lanes, the validation pass, and the exact `REVIEW.md` grammar. Invoked as `/pr-review:run` inside the sandbox, normally launched by `pr-review`; you'd run it by hand only in an already-prepared session. Its `SKILL.md` is the spec for everything about `REVIEW.md`'s format; this README is only an overview.
+- **`pr-assemble-rules`**, a self-contained Python 3 helper that `pr-review` runs during preparation. It sources the project's rule set from the PR's **base** branch into the snapshot, so the review judges against rules the PR cannot have rewritten. It shares the `PATH` shim (so `pr-review` can find it by bare name) but is never invoked by hand.
+
+The two commands share no code. They meet at a file contract: the preparation snapshot under `.pr-review/`, plus a `posted.md` marker under `.pr-review-run/` once a review is posted.
 
 ### Why the split
 
-Preparation needs the network and writes to `.git/config`, so it runs **unsandboxed**. The review needs neither, reads untrusted text, and so runs **sandboxed with zero egress** — its entire GitHub context is the snapshot taken before the sandbox closed. Posting needs the network again, so `pr-finalize` runs **unsandboxed** too. `pr-review` is the boundary between the first two; the file contract is the boundary between the review and `pr-finalize`.
+Preparation needs the network and writes to `.git/config`, so it runs **unsandboxed**. The review needs neither, reads untrusted text, and so runs **sandboxed with zero egress**; its entire GitHub context is the snapshot taken before the sandbox closed. Posting needs the network again, so `pr-finalize` runs **unsandboxed** too. `pr-review` is the boundary between the first two; the file contract is the boundary between the review and `pr-finalize`.
 
-All review artifacts — `.pr-review/`, `.pr-review-run/`, and `REVIEW.md` — are hidden from `git status` through `.git/info/exclude` (maintained by the preparation), never `.gitignore`. They never enter the project's history and never make the next preparation see a dirty tree.
+### Artifacts
+
+All review artifacts (`.pr-review/`, `.pr-review-run/`, and `REVIEW.md`) are hidden from `git status` through `.git/info/exclude`, maintained by the preparation, never through `.gitignore`. They never enter the project's history and never make the next preparation see a dirty tree.
+
+---
 
 ## Language support
 
-The review is written **in the natural language of the PR** — title and body — so the author reads it in the language they wrote in. Most of `REVIEW.md` is free prose the model writes directly; a small set of structural labels (the three section headings, the `Status:` line, and the status table's outcomes and headers) comes from a fixed **glossary** so they stay stable across runs and curation.
+The review is written **in the natural language of the PR** (its title and body), so the author reads it in the language they wrote in. Most of `REVIEW.md` is free prose the model writes directly; a small set of structural labels (the three section headings, the `Status:` line, and the status table's outcomes and headers) comes from a fixed **glossary**, so they stay stable across runs and curation.
 
-**English, Italian, and Spanish** are built in. To support another language, drop a glossary file at `.claude/pr-review/strings.<code>.json` in the repo being reviewed (`<code>` is the language's ISO 639-1 code, e.g. `fr` for French, `de` for German). Copy the reference shape below — the English values, which are also the built-in `en` glossary — and translate each value into your language:
+**English, Italian, and Spanish** are built in. To support another language, drop a glossary file at `.claude/pr-review/strings.<code>.json` in the repo being reviewed, where `<code>` is the language's ISO 639-1 code, e.g. `fr` for French. Copy the reference shape below (the English values, which are also the built-in `en` glossary) and translate each value into your language:
 
 ```json
 {
@@ -108,23 +233,27 @@ The review is written **in the natural language of the PR** — title and body �
 }
 ```
 
-A file present for a built-in language overrides the built-in, so you can tune terminology. With no glossary for the PR's language, the review still runs — it makes up the labels and warns you, so you can fix them with a `strings.<code>.json`. (Deeper prose conventions — grammatical gender, terminology, tone — belong in the repo's `.claude/rules/`, like any other project convention; the glossary covers only the structural labels.)
+A file present for a built-in language overrides the built-in, so you can tune terminology. With no glossary for the PR's language, the review still runs: it makes up the labels and warns you, so you can fix them with a `strings.<code>.json`. Deeper prose conventions (grammatical gender, terminology, tone) belong in the repo's `.claude/rules/`, like any other project convention; the glossary covers only the structural labels.
+
+---
 
 ## Updating and uninstalling
 
-- **Update the plugin:** `claude plugin update pr-review@tenacom-ai-tools`. This is a rolling release (no pinned version), so a new commit to the marketplace is a new version; the next session's hook refreshes the on-PATH copies automatically. If you have not opened a session in a while, run `claude -p /pr-review:install` again to force the refresh.
-- **Uninstall:** `claude plugin uninstall pr-review@tenacom-ai-tools`, then remove the PATH entries and the copies the setup step created:
+- **Update the plugin:** `claude plugin update pr-review@tenacom-ai-tools` picks up the latest released version. The next session's `SessionStart` hook refreshes the on-`PATH` copies automatically; if you have not opened a session in a while, run `claude -p /pr-review:install` again to force the refresh.
+- **Uninstall:** `claude plugin uninstall pr-review@tenacom-ai-tools`, then remove the `PATH` entries and the copies the setup step created:
 
   ```bash
-  rm -f ~/.local/bin/pr-review ~/.local/bin/pr-finalize
+  rm -f ~/.local/bin/pr-review ~/.local/bin/pr-finalize ~/.local/bin/pr-assemble-rules
   rm -rf ~/.local/share/pr-review
   ```
 
-  (The plugin's own files are removed by `claude plugin uninstall`; only the on-PATH shims and their backing copies live outside the plugin and need this manual cleanup.)
+  The plugin's own files are removed by `claude plugin uninstall`; only the on-`PATH` shims and their backing copies live outside the plugin and need this manual cleanup.
+
+---
 
 ## Reference
 
-- **The `run` skill's `SKILL.md` is the spec** for the review and for the `REVIEW.md` grammar — the three lexical rules, the `###` heading shape, the checkbox-as-curation primitive, the three sections, the anchor lint, the two registers, and the worked example. This README does not restate it.
 - **`pr-review <id> [register]`** prepares and reviews; **`pr-review prepare <id>`** prepares only; **`/pr-review:run [register]`** runs the review in an already-prepared session.
 - **`pr-finalize`** posts; **`pr-finalize --dry-run`** previews the payload and posts nothing.
-- **`/pr-review:install`** puts the two commands on your PATH (run once, at install).
+- **`/pr-review:install`** puts the two commands on your `PATH` (run once, at install).
+- **The `run` skill's `SKILL.md` is the spec** for the review and for the `REVIEW.md` grammar: the three lexical rules, the `###` heading shape, the checkbox-as-curation primitive, the three sections, the anchor lint, the two registers, and the worked example. This README does not restate it.
