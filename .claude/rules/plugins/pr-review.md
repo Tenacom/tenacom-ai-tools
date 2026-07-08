@@ -89,8 +89,8 @@ drop it). The docs' "hooks not firing → `chmod +x`" symptom is this.
 ### Finding prose — concise by contract
 
 A finding states the defect, never the code (`SKILL.md`'s **defect-not-code rule**, in the
-`###` blocks section): what is wrong, what triggers it, the consequence — a short, plain
-sentence each, ahead of the fix, with evidence from elsewhere entering as one permalinked
+`###` blocks section): what is wrong, what triggers it, the consequence — said plainly in
+a sentence or two, ahead of the fix, with evidence from elsewhere entering as one permalinked
 clause. Three placements are deliberate and must not drift:
 
 - The rule lives in the **block-format rules**, not the register section, because it binds
