@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Bugs fixed in this release
 
+- Review findings could bury the actual defect in a wall of text that re-explained the reviewed code, step by step, to the very person who wrote it — routinely forcing the reviewer to rewrite findings before posting. A finding now states what is wrong, what triggers it, and the consequence, typically in a few sentences ahead of the proposed fix.
+
 ### Known problems introduced by this release
 
 ## [1.0.3](https://github.com/Tenacom/tenacom-ai-tools/releases/tag/pr-review/1.0.3) (2026-07-03)

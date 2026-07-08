@@ -86,6 +86,26 @@ drop it). The docs' "hooks not firing → `chmod +x`" symptom is this.
   identically to any other fix (no scheduling preamble).
 - Section-dependent anchor lint. One diff parse, two consumers (`pr-review`, `pr-finalize`).
 
+### Finding prose — concise by contract
+
+A finding states the defect, never the code (`SKILL.md`'s **defect-not-code rule**, in the
+`###` blocks section): what is wrong, what triggers it, the consequence — a short, plain
+sentence each, ahead of the fix, with evidence from elsewhere entering as one permalinked
+clause. Three placements are deliberate and must not drift:
+
+- The rule lives in the **block-format rules**, not the register section, because it binds
+  **both registers** — register governs concept-teaching only (`junior` glosses unfamiliar
+  concepts; neither register re-explains the author's own change back to them). A fix
+  attempted in the register section alone would miss `expert` and be wrong.
+- **Assembly (SKILL step 7) distills, never transcribes.** Lane reports carry the full
+  substantiation chain _for the validators_ — that is correct and must stay; the chain's
+  human-facing residue is the conclusion plus the minimal decisive evidence, and the rest
+  remains in the run directory for post-mortem. Do not "fix" verbosity by thinning lane
+  reports: it would starve validation.
+- Born of field feedback: early reviews narrated the anchored code paragraph by paragraph,
+  and the human rewrote practically every finding before posting. Verbosity here is a
+  defect, not thoroughness — never trade it back for "more evidence in `REVIEW.md`".
+
 ### Language and strings (I18N)
 
 - **`REVIEW.md` is written in the PR's language** — the original design intent, restored. The
@@ -348,7 +368,7 @@ bumped to the precondition-fixed number.
 ## Packaging & deployment invariants
 
 - **Versioned plugin, rolling marketplace.** The plugin carries a semver `version` in its own
-  `plugin.json` (`1.0.1` at time of writing), **not** in the marketplace entry (when both exist
+  `plugin.json`, **not** in the marketplace entry (when both exist
   `plugin.json` wins silently). Bumping that field is the release gate: Claude Code resolves the
   version from `plugin.json` first, so pushing commits without a bump ships nothing to existing
   installs. The _marketplace_ is the rolling, unversioned layer served from `main`; the plugin is
