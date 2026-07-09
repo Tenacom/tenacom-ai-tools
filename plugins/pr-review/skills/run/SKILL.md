@@ -334,7 +334,7 @@ Either `formatDay` switches to the `getUTC*` counterparts, or the comment stops 
 Note what the example pins:
 
 - **Every checkbox is unchecked** — the machine never checks one; posting waits for the human's `[x]`.
-- **The verdict names the snag and stops** — no tour of the change, no inventory of the smaller findings, no severity words: the table carries the outcomes, the blocks carry the findings, and the verdict only judges. At ~20 words it is nowhere near the ceiling, and that is typical.
+- **The verdict names the snag and stops** — no tour of the change, no inventory of the smaller findings, no severity words: the table carries the outcomes, the blocks carry the findings, and the verdict only judges. At ~25 words it is nowhere near the ceiling, and that is typical.
 - **Each Observation takes a side.** The alternatives are laid out and the review still says which it would pick and why; the question left open is _which alternative_, never _whether to bother_.
 - **The marquee finding locates at its cause.** The defective read at `user-cms-detail.component.ts` L52 is _outside_ the diff — the PR changed the route, not that line — so the location is the causing hunk (L34 of the routing module), the prose opens with the cause ("the route becomes…"), the affected line rides along as a permalink, and the fix is the last line. The anchor rule doing the lead-with-cause work by itself.
 - **Every block spends its prose on the defect.** What is wrong, what triggers it, what follows — the marquee finding, the longest here, covers all three in two causally chained sentences, and none of them retells the anchored code, which is left to the anchor, where the reader already has it.
