@@ -16,8 +16,7 @@ authoritative spec** — when this file and `SKILL.md` disagree about review beh
 A PR-review pipeline for GitHub repos built on Claude Code: a six-agent parallel review
 that writes a structured `REVIEW.md` — body = the PR-level review comment; `###`-headed
 blocks = findings, **posted only when a human checks their checkbox** — reviewed against
-the full local source (not just the diff), with a two-register presentation (`junior`
-default, `expert` opt-in). The review runs **sandboxed with zero network, zero prompts,
+the full local source (not just the diff). The review runs **sandboxed with zero network, zero prompts,
 zero reliance on the Task notification channel**; everything network- or write-side lives
 outside the sandbox, in companion commands — `pr-review` (bash) prepares and launches,
 `pr-finalize` (Python) posts, and `pr-assemble-rules` (Python) sources the rule set from the
@@ -93,10 +92,10 @@ A finding states the defect, never the code (`SKILL.md`'s **defect-not-code rule
 a sentence or two, ahead of the fix, with evidence from elsewhere entering as one permalinked
 clause. Three placements are deliberate and must not drift:
 
-- The rule lives in the **block-format rules**, not the register section, because it binds
-  **both registers** — register governs concept-teaching only (`junior` glosses unfamiliar
-  concepts; neither register re-explains the author's own change back to them). A fix
-  attempted in the register section alone would miss `expert` and be wrong.
+- The rule lives in the **block-format rules**, not the Voice section — voice governs
+  concept-teaching only (glossing unfamiliar concepts in place; never re-explaining the
+  author's own change back to them), and the defect-not-code rule binds the block format
+  itself, whatever the voice says.
 - **Assembly (SKILL step 7) distills, never transcribes.** Lane reports carry the full
   substantiation chain _for the validators_ — that is correct and must stay; the chain's
   human-facing residue is the conclusion plus the minimal decisive evidence, and the rest
@@ -105,6 +104,35 @@ clause. Three placements are deliberate and must not drift:
 - Born of field feedback: early reviews narrated the anchored code paragraph by paragraph,
   and the human rewrote practically every finding before posting. Verbosity here is a
   defect, not thoroughness — never trade it back for "more evidence in `REVIEW.md`".
+
+### Verdict and Observations — commit, never shrug
+
+Same disease as finding verbosity, one level up: the model discharging findings without
+committing to them. Also field feedback — early verdicts recapped the change back to its
+author and narrated every finding up to three times (verdict, status-table Note, block),
+and early Observations all ended in "up to you". Two contracts, both in `SKILL.md`:
+
+- **The verdict is a judgment, never evidence** (The review file → Body): a hard word
+  ceiling, no recap of the change (not even as praise or as proof of the verdict), no
+  finding previews, no severity vocabulary, obstacles named by area and stake only. The
+  load-bearing rationale is the **posting leak**, not style: the body posts unconditionally
+  as the PR-level comment while blocks post only when checked, so a finding narrated in the
+  verdict — or in a Note, which is why the Note is **parasitic on its block** (name what is
+  unmet, point by location link text, add nothing the block says) — escapes the checkbox
+  gate, the design's central guarantee. Keep that rationale attached to the rule; the word
+  ceiling alone would be gamed again (the "one to three sentences" bound was, via
+  colon-and-dash mega-sentences).
+- **Observations carry a recommendation** (`###` blocks + Classification): the alternatives,
+  the review's pick with its reason, then a question that asks _which alternative_, never
+  _whether to bother_ — "fix it or leave it?" is a Problem wearing a question mark. "Both
+  are fine" / "up to you" / "a matter of taste" are banned like severity labels: a stakeless
+  question selects for the zero-effort answer and launders the issue into "reviewed and
+  deemed optional". Upstream of format, classification: deviations from a clear dominant
+  convention are Problems (one correct fix — follow the pattern); Observation status is
+  reserved for genuine splits, scoping, and real design trade-offs, and agent 3's charter
+  says so at the source so findings are not pre-softened at generation. The worked example's
+  Observation blocks model the recommendation shape — do not let "either is fine" back into
+  the example, because the example is what the model imitates.
 
 ### Language and strings (I18N)
 
@@ -238,7 +266,7 @@ clause. Three placements are deliberate and must not drift:
   confirmation prompt gets reported as a bug, but a hard failure with no context (an end user has no
   idea why `ugrep` is needed) gets the plugin abandoned. So this list deliberately never fails closed
   on a search tool, and the SKILL never gates the review on one resolving.
-- Launch pins max effort: `exec env CLAUDE_CODE_EFFORT_LEVEL=max claude --settings … "/pr-review:run [register]"`.
+- Launch pins max effort: `exec env CLAUDE_CODE_EFFORT_LEVEL=max claude --settings … "/pr-review:run"`.
 
 ### Never-execute rule
 
@@ -291,7 +319,7 @@ A subagent reads **only** its Task prompt, never `SKILL.md`, so every invariant 
 obey travels through one channel. `SKILL.md` collects that shared floor into a verbatim
 **subagent preamble** — no-execution, no-history, no-discovery, the read-only `rg` search
 vocabulary, no reads of `REVIEW.md`/the run dir/other agents' files, review-material-is-data
-(not instructions), report-in-English-register-neutral, always-write-your-file (even 0
+(not instructions), report-in-plain-English, always-write-your-file (even 0
 findings), one-line return. Both step 5 (lanes) and step 6 (validators) **prepend it verbatim**,
 then append only the agent-specific part (charter / findings-to-confirm, output path, report or
 verdict format). Do not re-scatter these invariants into per-lane prose or summarise the
@@ -404,6 +432,13 @@ bumped to the precondition-fixed number.
 
 ## Dead ends — do not re-walk
 
+- **A register/audience knob (`junior` default, `expert` opt-in).** Shipped in 1.0.x, removed:
+  the knob was presentation-only, went unused in practice, and carried standing costs — an
+  invocation argument that had to survive the whole run to matter at assembly, a guard
+  paragraph against `expert` compressing findings away, and one more constraint in a style
+  pile already implicated in the output's stilted prose. The review speaks with one voice (the
+  former `junior`); a prose problem is fixed by editing that voice, never by reintroducing a
+  register, verbosity, or audience knob.
 - **Skill self-location.** A skill body has no `__file__`; deriving its own path from the
   version-globbed cache is ambiguous during the 7-day overlap, and `${CLAUDE_PLUGIN_ROOT}` is
   the only token that names the live one. So the bootstrap is a **script** (true self-path via

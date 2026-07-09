@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # pr-review — prepare a GitHub PR and review it in a sandboxed Claude session.
-# Usage:  pr-review <pr_id> [<register>]
+# Usage:  pr-review <pr_id>
 #         pr-review prepare <pr_id>
 #
 #   prepare       prepare the working tree and stop — no review session.
@@ -8,8 +8,6 @@
 #                 Review later with `pr-review <pr_id>`, or with /pr-review:run
 #                 from a Claude session standing on the pr/<id> branch.
 #   <pr_id>       the pull request number
-#   [<register>]  optional review register forwarded to /pr-review:run
-#                 can be "junior" (the default) or "expert"
 #
 # Posting the curated REVIEW.md back to GitHub is a separate tool, `pr-finalize`
 # (a self-contained Python program): this script prepares and reviews; that one
@@ -42,7 +40,7 @@
 # no review; declining, or a failed push, fails the preparation. Idempotent: a
 # re-run finds no rebase needed and asks nothing. Finally launch `claude`
 # interactively, sandbox enabled for this session only (via --settings;
-# .claude/settings.local.json is never touched), with "/pr-review:run [register]"
+# .claude/settings.local.json is never touched), with "/pr-review:run"
 # as the initial prompt. Preparation runs OUTSIDE the sandbox (it needs network
 # and .git/config writes); the review runs INSIDE it with ZERO egress — all its
 # GitHub context comes from the snapshot, so the sandbox needs no GitHub hole.
@@ -120,28 +118,23 @@ SANDBOX_SETTINGS="$(cat <<'JSON'
 JSON
 )"
 
-usage='usage: pr-review [prepare] <pr_id> [<register>]'
+usage='usage: pr-review [prepare] <pr_id>'
 
 # 1. Arguments.
 prep_only=""
 pr_id=""
-register=""
 for arg in "$@"; do
   case "$arg" in
     prepare) prep_only=1 ;;
     -*) die "unknown option: $arg ($usage)" ;;
     *)
       if [[ -z "$pr_id" ]]; then pr_id="$arg"
-      elif [[ -z "$register" ]]; then register="$arg"
       else die "too many arguments ($usage)"
       fi ;;
   esac
 done
 [[ -n "$pr_id" ]] || die "$usage"
 [[ "$pr_id" =~ ^[0-9]+$ ]] || die "<pr_id> must be a PR number, got: $pr_id"
-if [[ -n "$prep_only" && -n "$register" ]]; then
-  die "prepare takes no register; the register belongs to the review."
-fi
 
 # 2. Command availability and GitHub CLI setup
 command -v git >/dev/null || die "git is not installed. Install it, then try again."
@@ -175,7 +168,6 @@ require_sandbox_deps() {
 
 launch_review() {
   local prompt="/pr-review:run"
-  if [[ -n "$register" ]]; then prompt="/pr-review:run $register"; fi
   require_sandbox_deps
   # denyWrite carries the repo root as a @@TOP@@ placeholder in each path (the settings heredoc is
   # quoted); fill it in now that $top is known. It scopes only Bash + children read-only, and only for
@@ -442,7 +434,7 @@ JSON
 
 # 17. Review, or stop here if prepare only.
 if [[ -n "$prep_only" ]]; then
-  log "$local_pr is prepared and checked out. Review with: pr-review $pr_id [register] — or run /pr-review:run from a Claude session on this branch."
+  log "$local_pr is prepared and checked out. Review with: pr-review $pr_id — or run /pr-review:run from a Claude session on this branch."
   exit 0
 fi
 launch_review

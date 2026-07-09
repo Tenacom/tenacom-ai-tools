@@ -9,7 +9,7 @@ Human review is thorough but slow; AI review is fast but flawed. `pr-review` doe
 | miss findings on a single pass        | idempotent re-runs: new findings stack into `REVIEW.md`, duplicates merge, curation survives                  |
 | judge the diff out of context         | a review run inside the repository, against the full checkout                                                 |
 | hallucinate problems                  | human curation as the core primitive: unchecked findings post nothing                                         |
-| write odd, needlessly technical prose | fixed wording instructions, plus a `junior` register that explains and an `expert` one that gets to the point |
+| write odd, needlessly technical prose | fixed wording instructions and one plain-spoken voice that explains concepts in place                         |
 
 One more property matters when the PR comes from a stranger: the part that reads attacker-influenceable text runs sandboxed, with zero network access and zero prompts — its entire GitHub context is a snapshot taken beforehand.
 
@@ -98,11 +98,8 @@ command -v pr-review pr-finalize
 From a repository root, in a terminal:
 
 ```bash
-pr-review 142            # default "junior" register
-pr-review 142 expert     # "expert" register
+pr-review 142
 ```
-
-The _register_ sets the review's tone: `junior` (the default) explains more, `expert` is more concise.
 
 This prepares `pr/142`: it checks out the branch, rebases it, and, only if the rebase rewrote the branch, asks at the terminal before force-pushing, so the PR head on GitHub matches what you review. It then captures the GitHub snapshot into `./.pr-review/` and launches an interactive sandboxed `claude` session running `/pr-review:run`. The review reads the snapshot and the checkout, runs its six lanes plus a validation pass, and writes `REVIEW.md` at the repo root. It makes no network calls.
 
@@ -253,7 +250,7 @@ A file present for a built-in language overrides the built-in, so you can tune t
 
 ## Reference
 
-- **`pr-review <id> [register]`** prepares and reviews; **`pr-review prepare <id>`** prepares only; **`/pr-review:run [register]`** runs the review in an already-prepared session.
+- **`pr-review <id>`** prepares and reviews; **`pr-review prepare <id>`** prepares only; **`/pr-review:run`** runs the review in an already-prepared session.
 - **`pr-finalize`** posts; **`pr-finalize --dry-run`** previews the payload and posts nothing.
 - **`/pr-review:install`** puts the two commands on your `PATH` (run once, at install).
-- **The `run` skill's `SKILL.md` is the spec** for the review and for the `REVIEW.md` grammar: the three lexical rules, the `###` heading shape, the checkbox-as-curation primitive, the three sections, the anchor lint, the two registers, and the worked example. This README does not restate it.
+- **The `run` skill's `SKILL.md` is the spec** for the review and for the `REVIEW.md` grammar: the three lexical rules, the `###` heading shape, the checkbox-as-curation primitive, the three sections, the anchor lint, the voice, and the worked example. This README does not restate it.
