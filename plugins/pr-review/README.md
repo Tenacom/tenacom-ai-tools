@@ -178,6 +178,14 @@ pr-finalize              # post the review, after a recap and a terminal confirm
 
 Checked findings under Problems or Observations that sit on changed lines post as inline comments. Everything else is _folded_: merged into the PR-level body under its section label. The verdict follows from your curation: with **no** checked finding it posts an **approval**; with **any** checked finding, in any section, it **requests changes**. The checkbox, not the section, decides. Before prompting, `pr-finalize` prints a per-section recap (checked / unchecked / total), so a half-read `REVIEW.md` is visible; an approval takes a second confirmation. On success it leaves a `posted.md` marker that closes the preparation.
 
+### Your own findings: draft them as a pending review
+
+While the review runs — or while curating — you will often spot things yourself, browsing the PR on github.com. Record them with GitHub's own **Start a review** flow: pending comments are saved server-side immediately, anchored to file and line by the UI, and survive a browser restart. Just don't submit the review — `pr-finalize` picks it up.
+
+A pending review would normally block posting (GitHub allows one pending review per user per PR), so `pr-finalize` detects yours and offers to fold it into the single review object it posts: your pending comments join the posted review exactly as you wrote them, your draft summary text (if any) is appended to the end of the review body, and the pending review is deleted from GitHub in the same step. The recap shows what is about to be imported, and everything fetched is first saved verbatim to `.pr-review-run/pending-import.json` as a recovery copy. An imported comment counts as a finding: the posted review requests changes even if no checkbox is ticked.
+
+Declining the import aborts the post — there is no posting around a pending review; to post without importing it, submit or discard it on github.com first, then re-run. Two things cannot ride along in a single review object and are refused by name: replies to existing threads and file-level comments. Handle those in the GitHub UI. `pr-finalize --dry-run` shows the would-be import and touches nothing on GitHub.
+
 ### Re-runs and re-preparation
 
 Within one preparation, re-running the review **stacks onto** `REVIEW.md` rather than overwriting it: findings already present are left untouched (checked or not, however you moved or edited them), and new ones are inserted **unchecked**. Because only checked blocks post, anything the merge gets wrong has no effect until you approve it.
@@ -251,6 +259,6 @@ A file present for a built-in language overrides the built-in, so you can tune t
 ## Reference
 
 - **`pr-review <id>`** prepares and reviews; **`pr-review prepare <id>`** prepares only; **`/pr-review:run`** runs the review in an already-prepared session.
-- **`pr-finalize`** posts; **`pr-finalize --dry-run`** previews the payload and posts nothing.
+- **`pr-finalize`** posts; **`pr-finalize --dry-run`** previews the payload and posts nothing. A pending GitHub review of yours on the PR is folded into the post (and deleted), after confirmation.
 - **`/pr-review:install`** puts the two commands on your `PATH` (run once, at install).
 - **The `run` skill's `SKILL.md` is the spec** for the review and for the `REVIEW.md` grammar: the three lexical rules, the `###` heading shape, the checkbox-as-curation primitive, the three sections, the anchor lint, the voice, and the worked example. This README does not restate it.
