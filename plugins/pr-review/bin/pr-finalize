@@ -38,7 +38,27 @@ refused (write a summary, then re-run) rather than faked.
 
 No inline comment is ever out-of-diff, so the all-or-nothing post is safe by
 construction. The hard refusals are a moved PR head, an already-posted
-preparation, and a change-requesting review with an empty body.
+preparation, a change-requesting review with an empty body, and a pending
+review carrying replies or file-level comments (see below).
+
+The curator's own pending GitHub review (the "Start a review" flow) would 422
+that POST — GitHub allows one pending review per user per PR. Instead of
+failing, pr-finalize detects it and offers to fold it in: its comments join
+the payload verbatim (anchors pass through untouched, LEFT-side and multi-line
+included — GitHub anchored them to the diff by construction, so they need no
+in-diff lint), its draft body, if any, lands at the end of the review body
+after a ---, and the pending review is deleted from GitHub just before the
+POST. Everything fetched is persisted to .pr-review-run/pending-import.json
+first — a recovery artifact, never an input: the ordering is fetch → persist →
+confirm → delete → post, so if the POST fails after the delete, the file holds
+the only surviving copy. An imported comment is a human-authored finding, so
+it forces REQUEST_CHANGES like a checked one. There is no "post without
+importing" — the POST cannot succeed while the pending review exists — so the
+choices are import or abort (submit or discard on github.com, then re-run).
+Two shapes are refused by name: replies (the create-review comments array
+cannot express in_reply_to, and posting them separately would break the
+all-or-nothing post) and file-level comments (no line anchor; payload support
+unconfirmed).
 
 On success REVIEW.md is kept — unchecked findings survive for a follow-up — and
 a posted.md marker in the run directory closes the preparation, refusing a
@@ -64,6 +84,7 @@ RUN_DIR = Path(".pr-review-run")
 REVIEW = Path("REVIEW.md")
 POSTED_MD = RUN_DIR / "posted.md"
 POSTED_JSON = RUN_DIR / "posted.json"
+PENDING_IMPORT = RUN_DIR / "pending-import.json"
 
 HEADING = re.compile(r"^#{1,6}\s")
 LINK = re.compile(r"\]\(\./([^)#]+)#(\d+)\)")  # target: ](./path#start)
@@ -94,6 +115,14 @@ def gh(*args: str, what: str, stdin: str | None = None) -> str:
     if p.returncode != 0:
         die(f"{what} failed: {p.stderr.strip() or 'gh error'}")
     return p.stdout
+
+
+def gh_api_list(path: str, what: str) -> list[dict]:
+    """GET a paginated array endpoint as one list. `--paginate` alone would
+    concatenate the pages' arrays into invalid JSON, so each element is
+    flattened to one raw JSON line instead (gh prints jq string results raw)."""
+    out = gh("api", "--paginate", path, "--jq", ".[] | @json", what=what)
+    return [json.loads(line) for line in out.splitlines() if line.strip()]
 
 
 # --- parsing ------------------------------------------------------------------
@@ -301,11 +330,12 @@ def assemble_body(body: str, fold_groups: list[tuple[str, str, list[str]]]) -> s
     return ("\n\n".join(parts)).strip() + "\n"
 
 
-def format_recap(sections: list[Section], comments: list[dict],
-                 fold_count: int, event: str) -> str:
+def format_recap(sections: list[Section], comments: list[dict], fold_count: int,
+                 event: str, imported: list[dict], has_draft: bool) -> str:
     """Human-readable curation recap printed before the prompt: per-section
-    checked/unchecked/total, then the verdict about to be posted. A section that
-    shows 0 checked is the cue for a REVIEW.md that was never read to the end."""
+    checked/unchecked/total, the pending-review import when there is one, then
+    the verdict about to be posted. A section that shows 0 checked is the cue
+    for a REVIEW.md that was never read to the end."""
     lines = [f"{PROG}: REVIEW.md recap"]
     width = max((len(s.label) for s in sections), default=0)
     for s in sections:
@@ -313,13 +343,82 @@ def format_recap(sections: list[Section], comments: list[dict],
         checked = sum(1 for b in s.blocks if b.checked)
         lines.append(f"  §{s.ordinal} {s.label:<{width}}  checked {checked}"
                      f" / unchecked {total - checked} / total {total}")
+    if imported:
+        paths = ", ".join(sorted({c["path"] for c in imported}))
+        lines.append(f"  + pending review: {len(imported)} comment(s) to import — {paths}")
+    if has_draft:
+        lines.append("  + pending review: draft body appended to the review body")
     if event == "APPROVE":
         lines.append("  → verdict: APPROVE (no findings checked)")
     else:
+        detail = f"{len(comments)} inline, {fold_count} folded"
+        if imported:
+            detail += f", {len(imported)} imported"
         lines.append(f"  → verdict: REQUEST_CHANGES "
-                     f"({len(comments) + fold_count} finding(s): {len(comments)} "
-                     f"inline, {fold_count} folded)")
+                     f"({len(comments) + fold_count + len(imported)} finding(s): "
+                     f"{detail})")
     return "\n".join(lines) + "\n"
+
+
+# --- the curator's pending review -----------------------------------------------
+
+def fetch_pending_review(nwo: str, pr_id: str) -> tuple[dict | None, list[dict]]:
+    """The curator's own pending review on the PR, with its comments, verbatim.
+
+    GitHub shows a pending review only to its author and allows one per user
+    per PR, so at most one is visible here — and while it exists, the finalize
+    POST is rejected with 422 even with an event supplied. Read-only: anything
+    destructive happens later, after the confirmations."""
+    reviews = gh_api_list(f"repos/{nwo}/pulls/{pr_id}/reviews",
+                          what=f"listing PR #{pr_id} reviews")
+    pending = [r for r in reviews if r.get("state") == "PENDING"]
+    if not pending:
+        return None, []
+    if len(pending) > 1:
+        die(f"PR #{pr_id} shows {len(pending)} pending reviews; GitHub allows one "
+            "per user and shows only your own, so this should be impossible. "
+            "Resolve them on github.com, then re-run.")
+    review = pending[0]
+    comments = gh_api_list(f"repos/{nwo}/pulls/{pr_id}/reviews/{review['id']}/comments",
+                           what="fetching the pending review's comments")
+    return review, comments
+
+
+def convert_pending_comments(comments: list[dict], pr_url: str) -> list[dict]:
+    """Pending comments as create-review payload entries, anchors untouched.
+
+    LEFT-side and multi-line anchors pass through: GitHub anchored them to the
+    diff by construction, so they need no in-diff lint (and REVIEW.md's grammar
+    could not even carry them). Two shapes cannot travel in a create-review
+    payload and are refused by name: replies (the payload cannot express
+    in_reply_to, and posting them separately after the review would break the
+    all-or-nothing post) and file-level comments (no line anchor; payload
+    support unconfirmed). A line comment with no line anchor is a stale anchor
+    and is refused likewise."""
+    imported: list[dict] = []
+    refused: list[str] = []
+    for c in comments:
+        where = f"{c.get('path', '?')}:{c.get('line') or c.get('original_line') or '?'}"
+        if c.get("in_reply_to_id"):
+            refused.append(f"{where} — a reply to an existing thread")
+        elif c.get("subject_type") == "file":
+            refused.append(f"{c.get('path', '?')} — a file-level comment")
+        elif c.get("line") is None:
+            refused.append(f"{where} — no line anchor (stale?)")
+        else:
+            entry = {"path": c["path"], "body": c["body"],
+                     "line": c["line"], "side": c.get("side") or "RIGHT"}
+            if c.get("start_line") is not None:
+                entry["start_line"] = c["start_line"]
+                entry["start_side"] = c.get("start_side") or entry["side"]
+            imported.append(entry)
+    if refused:
+        listing = "\n".join(f"  - {r}" for r in refused)
+        die("your pending review carries comment(s) that cannot travel in the "
+            f"single review object:\n{listing}\n"
+            f"Handle these in the GitHub UI ({pr_url}) — submit or discard the "
+            "pending review there — then re-run.")
+    return imported
 
 
 # --- the interactive confirmation ---------------------------------------------
@@ -424,6 +523,31 @@ def main(argv: list[str]) -> int:
             f"reviewed head {head[:12]}). The review's anchors no longer match. "
             f"Re-prepare and re-review: pr-review {pr_id}.")
 
+    # The curator's own pending review (GitHub's "Start a review" flow) blocks
+    # the POST below — one pending review per user per PR — so detect it now
+    # and fold it in, rather than 422 later. Fetch and persist here (fresh
+    # every run: comments edited on github.com between runs are picked up);
+    # delete only after the confirmations.
+    pr_url = f"https://github.com/{nwo}/pull/{pr_id}"
+    pending, pending_comments = fetch_pending_review(nwo, pr_id)
+    imported: list[dict] = []
+    draft_body = ""
+    if pending is not None:
+        imported = convert_pending_comments(pending_comments, pr_url)
+        draft_body = (pending.get("body") or "").strip()
+        # Persist the fetched pending review verbatim before anything else —
+        # a recovery artifact, never an input. Overwritten on each run (dry
+        # runs included: it is handy for debugging); if the POST fails after
+        # the delete below, this file is the only surviving copy.
+        RUN_DIR.mkdir(exist_ok=True)
+        try:
+            PENDING_IMPORT.write_text(json.dumps(
+                {"review": pending, "comments": pending_comments},
+                ensure_ascii=False, indent=2))
+        except OSError as e:
+            die(f"could not persist the pending review to {PENDING_IMPORT}: {e}. "
+                "Nothing was posted or deleted.")
+
     ranges_path = STATE_DIR / "canonical.diff"
     ranges = parse_diff_ranges(ranges_path.read_text()) if ranges_path.is_file() else {}
 
@@ -432,30 +556,63 @@ def main(argv: list[str]) -> int:
     body_text = assemble_body(body, fold_groups)
     fold_count = sum(len(items) for _, _, items in fold_groups)
 
-    # Verdict by curation: any checked finding (in any section) blocks; none
-    # approves. The checkbox is the blocking signal, not the section.
-    event = "REQUEST_CHANGES" if (comments or fold_count) else "APPROVE"
+    # The pending review's draft body (summary text typed but not submitted)
+    # rides along at the end of the assembled body, separated by ---.
+    if draft_body:
+        stripped = body_text.strip()
+        body_text = (f"{stripped}\n\n---\n\n{draft_body}\n" if stripped
+                     else f"{draft_body}\n")
 
-    # GitHub requires a body on a REQUEST_CHANGES. The only path to an empty one
-    # here is an all-inline block with no verdict prose and nothing folded — a
+    # Verdict by curation: any checked finding (in any section) blocks; none
+    # approves. The checkbox is the blocking signal, not the section — and an
+    # imported pending comment is a human-authored finding, checked by the act
+    # of writing it, so it blocks too.
+    event = "REQUEST_CHANGES" if (comments or fold_count or imported) else "APPROVE"
+
+    # GitHub requires a body on a REQUEST_CHANGES. The paths to an empty one
+    # here: an all-inline block with no verdict prose and nothing folded, or a
+    # pending-comment import over a bare REVIEW.md with no draft body — a
     # couple of blank lines do not count, hence the strip. Refuse loudly rather
     # than send a request that would 422.
     if event == "REQUEST_CHANGES" and not body_text.strip():
-        die("requesting changes, but the review body is empty: every checked "
-            "finding posts as an inline comment and there is no summary above the "
+        die("requesting changes, but the review body is empty: every finding "
+            "posts as an inline comment and there is no summary above the "
             "first section, so GitHub would reject the review. Add a short summary "
             "at the top of REVIEW.md (before the first ## section), then re-run.")
 
-    payload = {"body": body_text, "event": event, "comments": comments}
-    recap = format_recap(sections, comments, fold_count, event)
+    payload = {"body": body_text, "event": event, "comments": comments + imported}
+    recap = format_recap(sections, comments, fold_count, event, imported,
+                         bool(draft_body))
 
     if dry_run:
         print(json.dumps(payload, indent=2, ensure_ascii=False))
         sys.stderr.write(recap)
+        if pending is not None:
+            print(f"{PROG}: a pending review of yours exists on PR #{pr_id}; "
+                  f"finalizing will fold it in as shown and delete it from GitHub "
+                  f"(fetched copy: {PENDING_IMPORT}).", file=sys.stderr)
         print(f"{PROG}: dry run — nothing posted.", file=sys.stderr)
         return 0
 
     sys.stderr.write(recap)
+
+    # The import gate. There is no "post without importing": the POST cannot
+    # succeed while the pending review exists, so the choices are import or
+    # abort (and the escape hatch is the GitHub UI).
+    if pending is not None:
+        detail = [f"{len(imported)} comment(s)"] if imported else []
+        if draft_body:
+            detail.append("a draft body")
+        if detail:
+            prompt = (f"{PROG}: fold your pending review ({' and '.join(detail)}) "
+                      "into this post and delete it from GitHub? [y/N] ")
+        else:
+            prompt = (f"{PROG}: your pending review is empty but still blocks "
+                      "posting; delete it from GitHub and continue? [y/N] ")
+        if not confirm(prompt):
+            die("declined. Nothing posted, nothing deleted; the pending review is "
+                "untouched. To post without importing it, submit or discard it on "
+                f"{pr_url}, then re-run.")
 
     if event == "APPROVE":
         # No findings checked. That can mean "read it, it's clean" — or "never
@@ -468,24 +625,43 @@ def main(argv: list[str]) -> int:
                        f"confirm you have read it through and PR #{pr_id} is good "
                        "to approve? [y/N] "):
             die("declined. Nothing posted; REVIEW.md untouched.")
-    elif not confirm(f"{PROG}: post a REQUEST_CHANGES review to PR #{pr_id} — "
-                     f"{len(comments)} inline comment(s), {fold_count} finding(s) "
-                     "folded into the body? [y/N] "):
-        die("declined. Nothing posted; REVIEW.md untouched.")
+    else:
+        counts = f"{len(comments)} inline comment(s), {fold_count} finding(s) folded into the body"
+        if imported:
+            counts += f", {len(imported)} imported comment(s)"
+        if not confirm(f"{PROG}: post a REQUEST_CHANGES review to PR #{pr_id} — "
+                       f"{counts}? [y/N] "):
+            die("declined. Nothing posted; REVIEW.md untouched.")
+
+    # The pending review must go first or the POST is rejected — this is the
+    # one destructive step before the post, and pending-import.json already
+    # holds a verbatim copy. A failed DELETE dies here with nothing lost.
+    if pending is not None:
+        gh("api", "--method", "DELETE",
+           f"repos/{nwo}/pulls/{pr_id}/reviews/{pending['id']}",
+           what="deleting the pending review")
 
     # Post one review object. The base repo (nwo) holds the PR and its diff; for
-    # an open PR the head commit is reachable there, fork or not.
-    response_text = gh("api", "--method", "POST",
-                       f"repos/{nwo}/pulls/{pr_id}/reviews", "--input", "-",
-                       what="posting the review", stdin=json.dumps(payload))
+    # an open PR the head commit is reachable there, fork or not. Not the gh()
+    # helper: past the DELETE above a failure must point at the recovery copy.
+    recovery = ("" if pending is None else
+                f" Your pending review was already deleted from GitHub; its "
+                f"fetched copy survives in {PENDING_IMPORT}.")
+    p = _run("gh", "api", "--method", "POST",
+             f"repos/{nwo}/pulls/{pr_id}/reviews", "--input", "-",
+             stdin=json.dumps(payload))
+    if p.returncode != 0:
+        die(f"posting the review failed: {p.stderr.strip() or 'gh error'}."
+            f"{recovery}")
+    response_text = p.stdout
     try:
         response = json.loads(response_text)
         review_url = response.get("html_url", "")
     except ValueError:
         review_url = ""
     if not review_url:
-        die("the POST returned no review URL — treating it as a failure. "
-            f"Response:\n{response_text}")
+        die(f"the POST returned no review URL — treating it as a failure."
+            f"{recovery} Response:\n{response_text}")
 
     # Archive AND mark, marker first: posted.md is both the as-posted snapshot and
     # the guard, so writing it first closes the double-post window as early as

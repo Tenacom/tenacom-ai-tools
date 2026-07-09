@@ -389,6 +389,34 @@ bumped to the precondition-fixed number.
 - Routing by section ordinal: §1/§2 located → inline (**must** be in-diff or hard-refuse —
   the one thing that would 422 the all-or-nothing post); §1/§2 locationless → fold; §3 → all
   fold, with a `blob/<head>` permalink when located.
+- **The curator's own pending GitHub review is a supported input channel**
+  (Tenacom/tenacom-ai-tools#9). The "Start a review" flow is the natural place for the
+  curator's own findings — saved server-side, UI-anchored — but its existence 422s the
+  finalize POST (one pending review per user per PR, even with an `event` supplied). So
+  `pr-finalize` detects it (a read-only GET; no new arguments, preserving the "no args or
+  `--dry-run`" contract) and folds it into the single review object: comments join the
+  payload **verbatim** — anchors pass through untouched, LEFT-side and multi-line included;
+  GitHub anchored them to the diff by construction, so no in-diff lint. They deliberately do
+  **not** round-trip through `REVIEW.md`: its `](./path#start)` grammar cannot carry those
+  anchors, and the checkbox gate adds nothing — these comments are human-authored, and
+  writing them in the UI _was_ the curation act. For the same reason an imported comment is
+  a finding: it forces `REQUEST_CHANGES` even with zero checked blocks (a draft body alone
+  does not). The pending review's draft body, if any, is appended at the **end** of the
+  assembled review body, separated by `---`.
+- **Import ordering invariant: fetch → persist → confirm → delete → post.** Every run
+  fetches fresh (the server is the source of truth: comments edited on github.com between
+  runs are picked up) and writes the fetched review verbatim to
+  `.pr-review-run/pending-import.json` **before anything destructive** — a recovery
+  artifact, **never an input**: overwritten on each run (`--dry-run` included, handy for
+  debugging), and simply left on disk; if the POST fails after the delete it holds the only
+  surviving copy, and the failure message says so. The confirm offers **import or abort
+  only** — no "skip and post anyway", because the POST cannot succeed while the pending
+  review exists; aborting names the manual escape hatch (submit or discard on github.com,
+  then re-run). **Refused by name**: reply comments (the create-review `comments` array
+  cannot express `in_reply_to`, and posting them separately would break the all-or-nothing
+  post), file-level comments (`subject_type: file`; payload support unconfirmed), and
+  comments with a null `line` (stale anchor). `--dry-run` shows the would-be import and
+  touches nothing server-side.
 - On success writes `posted.md`/`posted.json`; `REVIEW.md` is kept (unchecked findings
   survive). `pr-review` refuses to relaunch a preparation whose `pr-finalize` already posted
   (the `.pr-review-run/posted.md` marker).

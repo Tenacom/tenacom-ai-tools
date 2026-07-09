@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### New features
 
+- `pr-finalize` now folds your own pending GitHub review on the PR (the "Start a review" flow) into the review it posts, instead of failing against GitHub's one-pending-review-per-user limit. Your pending comments join the posted review exactly as you wrote them (deleted-side and multi-line anchors included), a draft summary is appended to the review body, and the pending review is deleted from GitHub in the same step — after a recap and an explicit confirmation, with everything fetched saved to `.pr-review-run/pending-import.json` as a recovery copy first. Imported comments count as findings, so the posted review requests changes even with no checkbox ticked. Replies to existing threads and file-level comments cannot ride along in a single review object and are refused by name.
+
 ### Changes to existing features
 
 - **BREAKING:** Reviews now speak with a single voice — the plain, concept-explaining style that used to be the default `junior` register. The `expert` register is gone, and with it the register argument: `pr-review <id>` and `/pr-review:run` no longer take one, and `pr-review` now rejects any extra argument instead of reading it as a register.
