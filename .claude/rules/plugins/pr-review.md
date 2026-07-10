@@ -16,12 +16,12 @@ authoritative spec** — when this file and `SKILL.md` disagree about review beh
 A PR-review pipeline for GitHub repos built on Claude Code: a six-agent parallel review
 that writes a structured `REVIEW.md` — body = the PR-level review comment; `###`-headed
 blocks = findings, **posted only when a human checks their checkbox** — reviewed against
-the full local source (not just the diff). The review runs **sandboxed with zero network, zero prompts,
-zero reliance on the Task notification channel**; everything network- or write-side lives
-outside the sandbox, in companion commands — `pr-review` (bash) prepares and launches,
-`pr-finalize` (Python) posts, and `pr-assemble-rules` (Python) sources the rule set from the
-base branch during preparation. The whole thing is distributed as a Claude Code plugin named
-`pr-review`, installed from a private marketplace.
+the full local source (not just the diff). The review runs **sandboxed with zero network,
+zero prompts, zero reliance on the Task notification channel**; everything network- or
+write-side lives outside the sandbox, in companion commands — `pr-review` (bash) prepares
+and launches, `pr-finalize` (Python) posts, and `pr-assemble-rules` (Python) sources the
+rule set from the base branch during preparation. The whole thing is distributed as a
+Claude Code plugin named `pr-review`, installed from a private marketplace.
 
 ## Canonical names — do not drift
 
@@ -32,16 +32,16 @@ command sharing the plugin name is a coherence win. `pr-assemble-rules` is a thi
 binary but **not** an end-user command — it is an internal prep helper `pr-review` calls (see
 Base-sourced rule set); it shares the naming and the PATH shim, nothing more.
 
-| Thing                        | Canonical name           |
-| ---------------------------- | ------------------------ |
-| Prepare/launch command       | `pr-review`              |
-| Post command                 | `pr-finalize`            |
-| Rule-set helper (internal)   | `pr-assemble-rules`      |
-| Review skill invocation      | `/pr-review:run`         |
-| Review skill `name:` / dir   | `run` / `skills/run/`    |
-| Snapshot dir (repo root)     | `.pr-review/`            |
-| Base rule set (in snapshot)  | `.pr-review/rules/`      |
-| Run dir (repo root)          | `.pr-review-run/`        |
+| Thing                       | Canonical name        |
+| --------------------------- | --------------------- |
+| Prepare/launch command      | `pr-review`           |
+| Post command                | `pr-finalize`         |
+| Rule-set helper (internal)  | `pr-assemble-rules`   |
+| Review skill invocation     | `/pr-review:run`      |
+| Review skill `name:` / dir  | `run` / `skills/run/` |
+| Snapshot dir (repo root)    | `.pr-review/`         |
+| Base rule set (in snapshot) | `.pr-review/rules/`   |
+| Run dir (repo root)         | `.pr-review-run/`     |
 
 `REVIEW.md` is uppercase and is not a `pr-review` token. The `.git/info/exclude` list a
 prepared repo carries is exactly three entries: `.pr-review/`, `.pr-review-run/`,
@@ -116,14 +116,13 @@ and early Observations all ended in "up to you". Two contracts, both in `SKILL.m
   summary of any kind — the body is the status table, **two columns, requirement and
   outcome, no Note column, no `Status:` faux-heading above it**, preceded only, when the
   review's reach fell short, by a one-sentence coverage caveat (a caveat on the _review_,
-  never the work). The load-bearing
-  rationale is the **posting leak**, not style: the body posts unconditionally as the
-  PR-level comment while blocks post only when checked, so any prose slot above the table
-  invites a retelling of findings that escapes the checkbox gate, the design's central
-  guarantee. This is the endpoint of two failed rounds of fencing the verdict slot instead
-  of deleting it — the "one to three sentences" ceiling was gamed via colon-and-dash
-  mega-sentences, the subsequent no-previews ban via area-and-stake summaries ("two
-  correctness holes in the write paths") — and the Note column, even reduced to parasitic
+  never the work). The load-bearing rationale is the **posting leak**, not style: the body
+  posts unconditionally as the PR-level comment while blocks post only when checked, so any
+  prose slot above the table invites a retelling of findings that escapes the checkbox gate,
+  the design's central guarantee. This is the endpoint of two failed rounds of fencing the
+  verdict slot instead of deleting it — the "one to three sentences" ceiling was gamed via
+  colon-and-dash mega-sentences, the subsequent no-previews ban via area-and-stake summaries
+  ("two correctness holes in the write paths") — and the Note column, even reduced to parasitic
   pointers at its finding, was the same leak in table form. Do not reintroduce either; a
   prose problem in the body is solved by deleting prose, never by fencing it. Accepted
   residue: a table outcome can go stale against curation (a ⚠️ Partial stays ⚠️ when the
@@ -148,8 +147,9 @@ and early Observations all ended in "up to you". Two contracts, both in `SKILL.m
   spec (`SKILL.md`) and every agent communicate in **English**; only `REVIEW.md` output carries
   the PR's language. Do not reintroduce a project's house language into the spec or the agents.
 - **Load-bearing literals come from a glossary**, never improvised per run: the three section
-  headings and the status table's outcome labels and column headers. Free prose is translated directly; only these are pinned, because the
-  merge recreates missing `##` headings and a human navigates by stable labels.
+  headings and the status table's outcome labels and column headers. Free prose is translated
+  directly; only these are pinned, because the merge recreates missing `##` headings and a human
+  navigates by stable labels.
 - **Built-in glossaries: `en`, `it`, `es`** (defined verbatim in `SKILL.md`). Other languages
   are **pluggable**, in the consuming repo, at `.claude/pr-review/strings.<code>.json` (ISO 639-1
   code) — the plugin ships none (plugins cannot ship rules to users; see Dead ends). A project
