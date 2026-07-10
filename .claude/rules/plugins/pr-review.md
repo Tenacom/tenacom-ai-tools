@@ -105,23 +105,31 @@ clause. Three placements are deliberate and must not drift:
   and the human rewrote practically every finding before posting. Verbosity here is a
   defect, not thoroughness — never trade it back for "more evidence in `REVIEW.md`".
 
-### Verdict and Observations — commit, never shrug
+### No verdict, no Note — the body never carries findings
 
 Same disease as finding verbosity, one level up: the model discharging findings without
 committing to them. Also field feedback — early verdicts recapped the change back to its
 author and narrated every finding up to three times (verdict, status-table Note, block),
 and early Observations all ended in "up to you". Two contracts, both in `SKILL.md`:
 
-- **The verdict is a judgment, never evidence** (The review file → Body): a hard word
-  ceiling, no recap of the change (not even as praise or as proof of the verdict), no
-  finding previews, no severity vocabulary, obstacles named by area and stake only. The
-  load-bearing rationale is the **posting leak**, not style: the body posts unconditionally
-  as the PR-level comment while blocks post only when checked, so a finding narrated in the
-  verdict — or in a Note, which is why the Note is **parasitic on its block** (name what is
-  unmet, point by location link text, add nothing the block says) — escapes the checkbox
-  gate, the design's central guarantee. Keep that rationale attached to the rule; the word
-  ceiling alone would be gamed again (the "one to three sentences" bound was, via
-  colon-and-dash mega-sentences).
+- **The body carries no judgment prose** (The review file → Body): no verdict, no opening
+  summary of any kind — the body is the status table, **two columns, requirement and
+  outcome, no Note column, no `Status:` faux-heading above it**, preceded only, when the
+  review's reach fell short, by a one-sentence coverage caveat (a caveat on the _review_,
+  never the work). The load-bearing
+  rationale is the **posting leak**, not style: the body posts unconditionally as the
+  PR-level comment while blocks post only when checked, so any prose slot above the table
+  invites a retelling of findings that escapes the checkbox gate, the design's central
+  guarantee. This is the endpoint of two failed rounds of fencing the verdict slot instead
+  of deleting it — the "one to three sentences" ceiling was gamed via colon-and-dash
+  mega-sentences, the subsequent no-previews ban via area-and-stake summaries ("two
+  correctness holes in the write paths") — and the Note column, even reduced to parasitic
+  pointers at its finding, was the same leak in table form. Do not reintroduce either; a
+  prose problem in the body is solved by deleting prose, never by fencing it. Accepted
+  residue: a table outcome can go stale against curation (a ⚠️ Partial stays ⚠️ when the
+  human unchecks the findings behind it) — fine, because it reveals outcome-level
+  information only, which the posted review's event already reveals, never a finding's
+  substance.
 - **Observations carry a recommendation** (`###` blocks + Classification): the alternatives,
   the review's pick with its reason, then a question that asks _which alternative_, never
   _whether to bother_ — "fix it or leave it?" is a Problem wearing a question mark. "Both
@@ -140,8 +148,7 @@ and early Observations all ended in "up to you". Two contracts, both in `SKILL.m
   spec (`SKILL.md`) and every agent communicate in **English**; only `REVIEW.md` output carries
   the PR's language. Do not reintroduce a project's house language into the spec or the agents.
 - **Load-bearing literals come from a glossary**, never improvised per run: the three section
-  headings, the status faux-heading (`status.heading`), and the status table's outcome labels
-  and column headers. Free prose is translated directly; only these are pinned, because the
+  headings and the status table's outcome labels and column headers. Free prose is translated directly; only these are pinned, because the
   merge recreates missing `##` headings and a human navigates by stable labels.
 - **Built-in glossaries: `en`, `it`, `es`** (defined verbatim in `SKILL.md`). Other languages
   are **pluggable**, in the consuming repo, at `.claude/pr-review/strings.<code>.json` (ISO 639-1
@@ -378,10 +385,13 @@ bumped to the precondition-fixed number.
   next-step signal; the checkbox, not the section, is the blocking signal (a checked
   Preesistenti finding has been deemed worth resolving). The senior "amicus brief" comment
   review stays a manual, out-of-band act. This assumes the runner has write access — accepted,
-  since approving / requesting changes _is_ the point of a review. GitHub requires a non-empty
-  body on a `REQUEST_CHANGES`: the one path to an empty one (all checked findings inline, no
-  verdict prose, nothing folded) is a **hard refusal**, not a fabricated body — checked on the
-  _stripped_ body, so blank lines do not pass.
+  since approving / requesting changes _is_ the point of a review. An empty body is legal:
+  GitHub requires a `REQUEST_CHANGES` review to carry a body **or** comments — verified
+  empirically against the live API (2026-07-10; the docs' unconditional "body is required"
+  wording overstates it, and the web UI enforces the same body-or-comments rule). Every
+  `REQUEST_CHANGES` pr-finalize sends satisfies it by construction — the event fires only
+  when a finding is checked or an inline comment imported, and any folded finding makes the
+  body non-empty — so there is **no empty-body refusal**.
 - Before prompting, `pr-finalize` prints a per-section recap (label + checked / unchecked /
   total) and the pending verdict, so a half-curated `REVIEW.md` (e.g. 0 checked past §1) is
   visible. An `APPROVE` takes a **second** confirmation — an unmodified `REVIEW.md` may be an

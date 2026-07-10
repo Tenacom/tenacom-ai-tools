@@ -110,14 +110,9 @@ To prepare without reviewing, say to inspect the tree first, use `pr-review prep
 The review's whole output is one Markdown file, `REVIEW.md`, at the repository root. It is a draft, not a verdict: **nothing in it reaches GitHub until you approve it, finding by finding**. You curate by editing the file in place, with any editor. Trimmed to the bone, a fresh `REVIEW.md` looks like this:
 
 ```markdown
-The change does what the PR says, with one problem in the way: the detail
-page no longer opens after the route move.
-
-**Status:**
-
-| Requirement / Declared change | Outcome | Note |
-| --- | --- | --- |
-| Detail page on its own route | ⚠️ Partial | Unreachable, see app-routing.module.ts L34 |
+| Requirement / Declared change | Outcome |
+| --- | --- |
+| Detail page on its own route | ⚠️ Partial |
 
 ## Problems
 
@@ -134,15 +129,16 @@ Read the path param with `paramMap.get('id')`.
 ### [ ] 1 5
 
 The PR says "Fixes #839", but the detail page still depends on the service
-that issue wants gone. Bring that into this PR, or drop the "Fixes" and open
-a follow-up?
+that issue wants gone. Unless you're already close on that work, I'd drop the
+"Fixes" and open a follow-up — this PR is coherent as a route move. Bring it
+in here, or split it out?
 
 ## Pre-existing
 ```
 
 Three layers:
 
-- **The body** — everything above the first heading — is the future PR-level review comment: a short verdict, then a status table matching what the PR declares against what the diff delivers.
+- **The body** — everything above the first heading — is the future PR-level review comment: a status table matching what the PR declares against what the diff delivers, and nothing else (when the review could not cover part of the change, one sentence saying so precedes the table). The _why_ behind a ⚠️ or ❌ is not in the table: it lives in the finding that backs it, which posts only if you check it.
 - **The three `##` sections** — Problems, Observations, Pre-existing, written in the PR's language — classify the findings. All three are always present, even when empty (Pre-existing is, above).
 - **Each `###` block is one finding**: the heading carries its metadata, and the prose below it is the comment that would post.
 
@@ -162,7 +158,7 @@ Curation itself is a handful of gestures:
 
 - **Tick what should post.** Turn `[ ]` into `[x]` on each finding worth sending. This is the only action required: the review always delivers every checkbox unchecked, and checking is exclusively your act.
 - **Leave the rest unchecked — don't delete.** An unchecked finding posts nothing, ever, and it stays in the file as a record: on a re-run, findings already present are left untouched, so a rejected finding does not come back to be re-litigated.
-- **Edit freely below the headings.** The verdict, the table, and each finding's prose are yours to reword, shorten, or fix. You can also reorder findings within a section (order is the only priority signal) and relabel a `##` heading — its text is used verbatim as the group label when its checked findings fold into the PR-level comment.
+- **Edit freely below the headings.** The table and each finding's prose are yours to reword, shorten, or fix. You can also reorder findings within a section (order is the only priority signal) and relabel a `##` heading — its text is used verbatim as the group label when its checked findings fold into the PR-level comment.
 - **Leave the structure alone.** Don't delete a `##` heading, even over an empty section — sections are identified by position, so removing one would misroute everything below it. And don't rework a `###` heading's checkbox, numbers, or link: that line is the grammar `pr-finalize` parses.
 
 The full grammar, with a complete worked example, lives in the `run` skill's [`SKILL.md`](skills/run/SKILL.md); how checked findings turn into an actual GitHub review is the next step.
@@ -223,7 +219,7 @@ All review artifacts (`.pr-review/`, `.pr-review-run/`, and `REVIEW.md`) are hid
 
 ## Language support
 
-The review is written **in the natural language of the PR** (its title and body), so the author reads it in the language they wrote in. Most of `REVIEW.md` is free prose the model writes directly; a small set of structural labels (the three section headings, the `Status:` line, and the status table's outcomes and headers) comes from a fixed **glossary**, so they stay stable across runs and curation.
+The review is written **in the natural language of the PR** (its title and body), so the author reads it in the language they wrote in. Most of `REVIEW.md` is free prose the model writes directly; a small set of structural labels (the three section headings and the status table's outcomes and headers) comes from a fixed **glossary**, so they stay stable across runs and curation.
 
 **English, Italian, and Spanish** are built in. To support another language, drop a glossary file at `.claude/pr-review/strings.<code>.json` in the repo being reviewed, where `<code>` is the language's ISO 639-1 code, e.g. `fr` for French. Copy the reference shape below (the English values, which are also the built-in `en` glossary) and translate each value into your language:
 
@@ -231,9 +227,8 @@ The review is written **in the natural language of the PR** (its title and body)
 {
   "sections": { "problems": "Problems", "observations": "Observations", "preexisting": "Pre-existing" },
   "status": {
-    "heading": "Status:",
     "outcomes": { "ok": "OK", "partial": "Partial", "missing": "Missing" },
-    "columns": { "requirement": "Requirement / Declared change", "outcome": "Outcome", "note": "Note" }
+    "columns": { "requirement": "Requirement / Declared change", "outcome": "Outcome" }
   }
 }
 ```
