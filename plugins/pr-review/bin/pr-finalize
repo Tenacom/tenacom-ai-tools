@@ -354,7 +354,7 @@ def format_recap(sections: list[Section], comments: list[dict], fold_count: int,
         detail = f"{len(comments)} inline, {fold_count} folded"
         if imported:
             detail += f", {len(imported)} imported"
-        lines.append(f"  → verdict: REQUEST_CHANGES "
+        lines.append("  → verdict: REQUEST_CHANGES "
                      f"({len(comments) + fold_count + len(imported)} finding(s): "
                      f"{detail})")
     return "\n".join(lines) + "\n"
@@ -575,10 +575,12 @@ def main(argv: list[str]) -> int:
     # couple of blank lines do not count, hence the strip. Refuse loudly rather
     # than send a request that would 422.
     if event == "REQUEST_CHANGES" and not body_text.strip():
-        die("requesting changes, but the review body is empty: every finding "
-            "posts as an inline comment and there is no summary above the "
-            "first section, so GitHub would reject the review. Add a short summary "
-            "at the top of REVIEW.md (before the first ## section), then re-run.")
+        die("requesting changes, but the review body is empty: every finding — "
+            "imported pending comments included — posts as an inline comment, "
+            "and there is neither a summary above the first section nor a "
+            "pending-review draft body, so GitHub would reject the review. Add a "
+            "short summary at the top of REVIEW.md (before the first ## section), "
+            "then re-run.")
 
     payload = {"body": body_text, "event": event, "comments": comments + imported}
     recap = format_recap(sections, comments, fold_count, event, imported,
@@ -589,7 +591,7 @@ def main(argv: list[str]) -> int:
         sys.stderr.write(recap)
         if pending is not None:
             print(f"{PROG}: a pending review of yours exists on PR #{pr_id}; "
-                  f"finalizing will fold it in as shown and delete it from GitHub "
+                  "finalizing will fold it in as shown and delete it from GitHub "
                   f"(fetched copy: {PENDING_IMPORT}).", file=sys.stderr)
         print(f"{PROG}: dry run — nothing posted.", file=sys.stderr)
         return 0
@@ -645,7 +647,7 @@ def main(argv: list[str]) -> int:
     # an open PR the head commit is reachable there, fork or not. Not the gh()
     # helper: past the DELETE above a failure must point at the recovery copy.
     recovery = ("" if pending is None else
-                f" Your pending review was already deleted from GitHub; its "
+                " Your pending review was already deleted from GitHub; its "
                 f"fetched copy survives in {PENDING_IMPORT}.")
     p = _run("gh", "api", "--method", "POST",
              f"repos/{nwo}/pulls/{pr_id}/reviews", "--input", "-",
@@ -660,7 +662,7 @@ def main(argv: list[str]) -> int:
     except ValueError:
         review_url = ""
     if not review_url:
-        die(f"the POST returned no review URL — treating it as a failure."
+        die("the POST returned no review URL — treating it as a failure."
             f"{recovery} Response:\n{response_text}")
 
     # Archive AND mark, marker first: posted.md is both the as-posted snapshot and
