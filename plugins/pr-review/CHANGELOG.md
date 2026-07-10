@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### New features
 
+### Changes to existing features
+
+### Bugs fixed in this release
+
+### Known problems introduced by this release
+
+## [2.0.0](https://github.com/Tenacom/tenacom-ai-tools/releases/tag/pr-review/2.0.0) (2026-07-10)
+
+### New features
+
 - `pr-finalize` now folds your own pending GitHub review on the PR (the "Start a review" flow) into the review it posts, instead of failing against GitHub's one-pending-review-per-user limit. Your pending comments join the posted review exactly as you wrote them (deleted-side and multi-line anchors included), a draft summary is appended to the review body, and the pending review is deleted from GitHub in the same step — after a recap and an explicit confirmation, with everything fetched saved to `.pr-review-run/pending-import.json` as a recovery copy first. Imported comments count as findings, so the posted review requests changes even with no checkbox ticked. Replies to existing threads and file-level comments cannot ride along in a single review object and are refused by name.
 
 ### Changes to existing features
@@ -22,8 +32,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Review findings could bury the actual defect in a wall of text that re-explained the reviewed code, step by step, to the very person who wrote it — routinely forcing the reviewer to rewrite findings before posting. A finding now states what is wrong, what triggers it, and the consequence, typically in a few sentences ahead of the proposed fix.
 - The review's opening verdict could balloon into a full recap of the pull request plus a preview of every finding — prose the status table and the findings themselves then repeated (the table's Note column could make it a third telling). Worse than verbose, it leaked: the verdict posts unconditionally with the review body, so a finding the reviewer had deliberately left unchecked could still reach GitHub through its summary in the verdict. The verdict is now a short judgment — does the change do its job, and what stands in the way — with the details left to the table and the findings, and the Note column now points at a finding instead of retelling it.
 - Findings about consistency and code style could land as take-it-or-leave-it questions ("fix it or leave it as is?"), inviting the zero-effort answer and framing conventions as personal taste. A departure from a clear codebase convention is now reported as a problem with one correct fix, and the findings that do hand back a genuine decision (scoping, real design trade-offs) now state which alternative the review recommends and why, instead of "both are fine".
-
-### Known problems introduced by this release
 
 ## [1.0.3](https://github.com/Tenacom/tenacom-ai-tools/releases/tag/pr-review/1.0.3) (2026-07-03)
 
