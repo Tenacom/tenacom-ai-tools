@@ -8,14 +8,14 @@ When in doubt about update behavior, re-read the "Version resolution and release
 
 - The marketplace itself is **not** versioned. It is an index (a catalog), and Claude Code has no consumer-side mechanism to select a marketplace version: `/plugin marketplace update` always pulls the served branch's HEAD. A version number would gate nothing, so it would be pure bookkeeping that can drift from the plugin versions it sits next to.
 - The repository default branch is `main`, so a bare `/plugin marketplace add <owner>/<repo>` resolves to `main`. No `ref` ceremony for consumers.
-- Catalog-level history (a plugin added, renamed, deprecated, or removed) may be narrated in a root `CHANGELOG.md` **without** a version number. Those are exactly the events that touch shared root files, so the changelog and the conflict surface coincide.
+- Catalog-level history (a plugin added, updated to a new version, renamed, deprecated, or removed) may be narrated in a root `CHANGELOG.md` **without** a version number. Version updates aside, those are exactly the events that touch shared root files, so the changelog and the conflict surface nearly coincide.
 
 ## Plugins are versioned
 
 - Each plugin carries a semver `version` in its own `plugin.json`. **Do not** also set `version` in the plugin's marketplace entry: when both exist, `plugin.json` wins silently and a stale manifest can mask the marketplace value. One home only.
 - Bumping `version` **is** the release gate (see below). Bump it on every release; never bump it while the plugin is mid-change.
 - Plugin sources stay as local paths (`./plugins/<name>`), which is safe because we only ever serve `main`.
-- Per-plugin docs and changelogs live in the plugin's own subtree. Namespaced tags (`<plugin>/vX.Y.Z`) are welcome as immutable anchors, but they are decorative: nothing resolves against them, so they cannot contradict the `version` field.
+- Per-plugin docs and changelogs live in the plugin's own subtree. Namespaced tags (`<plugin>/X.Y.Z`) are welcome as immutable anchors, but they are decorative: nothing resolves against them, so they cannot contradict the `version` field.
 
 ## How updates resolve (and why `main` must stay coherent)
 
@@ -40,24 +40,35 @@ Anything at the repository root that several plugins touch is a shared conflict 
 
 ## Changelogs
 
-All changelogs follow the [Keep a Changelog](https://keepachangelog.com) style and are **hand-maintained**. We do not use Conventional Commits, so commit-driven generators (release-please, git-cliff) are out; there is nothing to automate, and nothing to migrate later. The changelog layout mirrors the versioning split — one layer per version model.
+All changelogs follow the [Keep a Changelog](https://keepachangelog.com) style and are **hand-maintained**. We do not use Conventional Commits, so commit-driven generators (release-please, git-cliff) are out; there is nothing to automate, and nothing to migrate later. The changelog layout mirrors the versioning split — one layer per version model. How to write the entries themselves — and the house section names the real files use — is [changelog-entries.md](changelog-entries.md).
 
-- **Per-plugin `CHANGELOG.md`** (in `plugins/<name>/`) carries the substance: one section per release, versioned and dated, anchored to the plugin's semver and its `<plugin>/vX.Y.Z` tags. Use a `## [Unreleased]` section in the normal way, since these files are gated by version bumps.
+- **Per-plugin `CHANGELOG.md`** (in `plugins/<name>/`) carries the substance: one section per release, versioned and dated, its heading linking to the `<plugin>/X.Y.Z` release tag. Keep a `## Unreleased changes` section at the top (with the four house sections as empty slots, see [changelog-entries.md](changelog-entries.md)) in the normal way, since these files are gated by version bumps.
 
   ```markdown
-  ## [Unreleased]
+  ## Unreleased changes
 
-  ## [1.1.0] - 2026-07-15
-  ### Added
-  - pr-finalize now posts inline comments
+  ### New features
+
+  ### Changes to existing features
+
+  ### Bugs fixed in this release
+
+  ### Known problems introduced by this release
+
+  ## [1.1.0](https://github.com/Tenacom/tenacom-ai-tools/releases/tag/pr-review/1.1.0) (2026-07-15)
+
+  ### New features
+
+  - **`pr-finalize` now posts inline comments.**
+    Checked findings pinned to changed lines post at those lines instead of folding into the review body.
   ```
 
-- **Root `CHANGELOG.md`** narrates catalog-level events only (a plugin added, renamed, deprecated, removed). It is **version-less but dated**: the marketplace is rolling, so there are no versions or tags to anchor sections — the date is the anchor. It never mirrors plugin tags; per-version sections belong exclusively to the per-plugin files. Name the affected plugin in each entry (and its version where relevant). Because a catalog event is live the moment it lands on `main`, the root file needs **no `## [Unreleased]` section** — append a dated entry when the change merges.
+- **Root `CHANGELOG.md`** narrates catalog-level events only (a plugin added, updated to a new version, renamed, deprecated, removed). It is **version-less but dated**: the marketplace is rolling, so there are no versions or tags to anchor sections — the date is the anchor. It never mirrors plugin tags; per-version sections belong exclusively to the per-plugin files. Name the affected plugin in each entry (and its version where relevant). Because a catalog event is live the moment it lands on `main`, the root file needs **no unreleased section** — append a dated entry when the change merges. It carries no per-type subsections either: plain bullets under the date.
 
   ```markdown
-  ## 2026-07-01
-  ### Added
-  - pr-review (v1.0.0) — initial release
+  ## 2026-06-29
+
+  - First marketplace release. The only released plugin is `pr-review`.
   ```
 
 This two-file split is what keeps changelogs free of cross-plugin aggregation: each plugin's history stands alone, and the root file is sparse hand-written narration of the same events that touch the shared root surface.
