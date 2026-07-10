@@ -13,6 +13,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changes to existing features
 
+- **The review body no longer opens with a verdict paragraph.**
+  Verdict paragraphs observed during real-world use of `pr-review` consistently failed to convey any useful information and were often in need of a rewrite. That was additional curation work for no real value, and is now no longer necessary.
+- **The status table in the review body has lost the `Status:` label above it.**
+  Without the verdict paragraph, the status table now opens the review and, unless content gets added during curation or some findings are not pinned to the diff, also closes it. The `Status:` faux-heading at this point was visual noise.
+  One exception: when the review could not fully cover the change, a single sentence saying so — and nothing else — precedes the table.
+- **The status table has no `Note` column any longer.**
+  On rows where the `Outcome` column read "Partial" or "Missing", the `Note` column summarized findings that the curator might later decide not to post. A `Note` cell mentioning a finding that is not in the review is worse than no note at all.
+  It should be noted that unchecked findings can _still_ turn a "Partial" or "Missing" outcome into a blatant lie. This is, however, a lot easier to fix during curation than a paragraph of text mixing mentions of checked and unchecked findings.
+- **Two glossary keys are gone.**
+  As a result of the above-mentioned removals, the `status.heading` and `status.columns.note` keys in project glossary files (`.claude/pr-review/strings.<code>.json`) are now quietly ignored. New glossaries should omit them.
+- **Empty review bodies are now allowed.**
+  `pr-finalize` no longer refuses to request changes when the review body is empty. The "add a short summary, then re-run" stop is gone.
+
 ### Bugs fixed in this release
 
 ### Known problems introduced by this release

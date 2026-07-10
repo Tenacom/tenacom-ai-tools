@@ -86,7 +86,7 @@ Subagent results travel as **files, never as messages**. The Task notification c
 
    **Collect lane reports from the run directory, never from Task returns.** All six filenames are known from dispatch; Read each file. A lane whose Task result went missing but whose file exists completed fine — the file is the truth. A lane with neither result nor file actually died (a completed lane always writes its file, even with zero findings — see the preamble): relaunch that one lane **once**, with the same prompt and the same filename (it overwrites only its own partial), and never wait on a notification that may already be lost. If the relaunch still leaves no file, proceed without that lane and record the gap — which lane, that its coverage is missing — in the session, rather than relaunching indefinitely.
 
-   A lane that _did_ write its file but flagged **partial coverage** (its coverage note from the bullet above) carries the same kind of gap, a smaller one: record it in the session too — which lane, which changed files it could not cover — alongside any dead-lane gap. Both kinds of coverage gap also reach the verdict at assembly (step 7, see The review file → Body): a declared limit on the review's reach must never be dropped between the lane that raised it and the human who trusts the result.
+   A lane that _did_ write its file but flagged **partial coverage** (its coverage note from the bullet above) carries the same kind of gap, a smaller one: record it in the session too — which lane, which changed files it could not cover — alongside any dead-lane gap. Both kinds of coverage gap also reach the body's coverage caveat at assembly (step 7, see The review file → Body): a declared limit on the review's reach must never be dropped between the lane that raised it and the human who trusts the result.
 6. Validate. Group the surviving findings into validator subagents and confirm each against the actual code with high confidence. **Grouping is your judgment along a coherent axis** — by lane, by affected area, whatever keeps one validator's set homogeneous in the _kind_ of judgment it demands — bound by three invariants: every finding is validated **exactly once** (none dropped from validation, none validated twice); each finding earns an **independent verdict** from the validator's own Read of ground truth (batching is a dispatch convenience, never licence to let one verdict colour another); and no validator carries **so many findings that it truncates** — split a large group. The validation file carries no agent number precisely because a validator may hold findings from any mix of lanes.
 
    **Prepend the subagent preamble (above) verbatim**, then give each validator, explicitly:
@@ -106,11 +106,11 @@ Subagent results travel as **files, never as messages**. The Task notification c
 
 ## Language and strings
 
-`REVIEW.md` is written **in the natural language of the PR's title and body** (step 1) — never the language of this spec, nor any one project's house language. Everything human-facing in the file is in that language: the verdict, every finding's prose, the status table, and the section headings. The author reads the review in the language they wrote the PR in.
+`REVIEW.md` is written **in the natural language of the PR's title and body** (step 1) — never the language of this spec, nor any one project's house language. Everything human-facing in the file is in that language: every finding's prose, the status table, the coverage caveat when there is one, and the section headings. The author reads the review in the language they wrote the PR in.
 
-Most of that text is free prose you write directly in the target language. A small, fixed set of **load-bearing literals** comes instead from a **glossary**, so they stay identical across runs — the merge recreates a missing `##` heading "in the file's language" (see Additive re-runs), and a human curator must see the same labels every time. The glossary fixes exactly these and nothing else: the three section headings, the status faux-heading, and the status table's outcome labels and column headers.
+Most of that text is free prose you write directly in the target language. A small, fixed set of **load-bearing literals** comes instead from a **glossary**, so they stay identical across runs — the merge recreates a missing `##` heading "in the file's language" (see Additive re-runs), and a human curator must see the same labels every time. The glossary fixes exactly these and nothing else: the three section headings and the status table's outcome labels and column headers.
 
-A glossary is a JSON object of this shape — and an override file (below) holds exactly the same object. The three **built-in glossaries** follow; **use them verbatim, never re-translate them.**
+A glossary is a JSON object of this shape — and an override file (below) holds exactly the same object; keys beyond these (e.g. a `status.heading` or a `note` column header from an older glossary) are ignored. The three **built-in glossaries** follow; **use them verbatim, never re-translate them.**
 
 English (`en`):
 
@@ -118,9 +118,8 @@ English (`en`):
 {
   "sections": { "problems": "Problems", "observations": "Observations", "preexisting": "Pre-existing" },
   "status": {
-    "heading": "Status:",
     "outcomes": { "ok": "OK", "partial": "Partial", "missing": "Missing" },
-    "columns": { "requirement": "Requirement / Declared change", "outcome": "Outcome", "note": "Note" }
+    "columns": { "requirement": "Requirement / Declared change", "outcome": "Outcome" }
   }
 }
 ```
@@ -131,9 +130,8 @@ Italian (`it`):
 {
   "sections": { "problems": "Problemi", "observations": "Osservazioni", "preexisting": "Preesistenti" },
   "status": {
-    "heading": "Stato:",
     "outcomes": { "ok": "OK", "partial": "Parziale", "missing": "Mancante" },
-    "columns": { "requirement": "Requisito / Modifica dichiarata", "outcome": "Esito", "note": "Nota" }
+    "columns": { "requirement": "Requisito / Modifica dichiarata", "outcome": "Esito" }
   }
 }
 ```
@@ -144,9 +142,8 @@ Spanish (`es`):
 {
   "sections": { "problems": "Problemas", "observations": "Observaciones", "preexisting": "Preexistentes" },
   "status": {
-    "heading": "Estado:",
     "outcomes": { "ok": "OK", "partial": "Parcial", "missing": "Ausente" },
-    "columns": { "requirement": "Requisito / Cambio declarado", "outcome": "Resultado", "note": "Nota" }
+    "columns": { "requirement": "Requisito / Cambio declarado", "outcome": "Resultado" }
   }
 }
 ```
@@ -183,12 +180,12 @@ Provenance only — it is stripped before the file is parsed and never interacts
 
 ### Body
 
-In order, blank-line separated. Each piece below is **exactly one paragraph** unless stated otherwise. A slot with nothing to say is **omitted entirely** — no "nothing to report" filler. **Findings never live in the body** — exactly two slots:
+In order, blank-line separated. **The body carries no judgment prose — no verdict, no summary, no opening paragraph of any kind** (no "Summary:", "Looks good overall", or any equivalent in the PR's language). Earlier designs opened with a verdict paragraph, and every constraint put on it was gamed in turn — a word ceiling by colon-and-dash mega-sentences, a no-previews ban by area-level summaries — because any prose slot above the table invites a retelling of findings, and the body posts unconditionally as the PR-level comment while blocks post only when checked: whatever a finding leaks into the body escapes the checkbox as the sole gate on what posts. The slot no longer exists; do not reinvent it. **Findings never live in the body** — exactly two slots:
 
-- **The verdict** — one paragraph, first thing in the file, **no heading and no label above or before it** (no "Summary:", "Verdict:", or any equivalent in the PR's language). One to three plain sentences, **~60 words at the outside** — a ceiling, not a target — on whether the change does what it set out to do and what stands in the way, the obstacles named by area and stake ("two correctness holes in the write paths"), never by mechanism. The verdict is a **judgment, never evidence** — do not prove it, and three concrete bans follow. **No recap of what the change does** — not as a tour, not as a praise inventory, not as grounds for the verdict: the author wrote it, and the status table below already carries the per-requirement outcomes. **No finding previews**: a finding narrated here becomes an uncurated copy in the body, and the body posts unconditionally as the PR-level comment while blocks post only when checked — so a preview would leak a finding the human left unchecked, breaking the checkbox as the sole gate on what posts. **No severity vocabulary** ("minor", "polish", "cosmetic", or any equivalent in any language) — the Classification ban on severity labels binds here too, before the reader has even reached the findings. And no colon-and-dash enumerations that keep the sentence count while smuggling a list: an inventory inside the verdict is a status table or a findings section trying to live where neither belongs. Describe the _state of the work_, never the author. If the review's reach fell short — a lane died, or a lane flagged partial coverage (the coverage gaps recorded in the session at step 5) — add one clause here saying so, as a caveat on the _review_, not a fault of the work: the human must know a gap exists before reading a clean result as complete.
-- **The status faux-heading** — the glossary's `status.heading`, rendered bold (English `**Status:**`, Italian `**Stato:**`), deliberately **not** a `##`/`###` heading: a real heading here would end the body and orphan everything after it. Below it, the table: one row per linked-issue requirement and per change the PR text declares; the outcome is the glossary's `status.outcomes` value with its emoji — `✅ <ok>` / `⚠️ <partial>` / `❌ <missing>` (English `✅ OK` / `⚠️ Partial` / `❌ Missing`); a one-short-clause reason. Its column headers are the glossary's `status.columns`. **The Note justifies the outcome and never carries a finding's content.** When a finding backs the row, the Note names what is unmet and points at the finding **by its location link text, as plain unlinked text** — "detail page unreachable, see app-routing.module.ts L34" — and stops there: no mechanism, no consequence, no fix, nothing its block already says. The test: a Note that would still read as a finding with its block deleted says too much — it is the same defect's second telling inside the body, and the body posts whether or not the finding is checked (the same leak the verdict's no-previews ban closes). Point never by run/agent numbers (provenance and identity, not references for humans) and never as a link (a relative link outside a `###` heading breaks the grammar; a permalink would point at code, not at the finding). After the table, if any: a bullet list of changes found in the diff but declared nowhere — flagged for alignment, not as faults.
+- **The coverage caveat** — only when the review's reach fell short: a lane died, or a lane flagged partial coverage (the coverage gaps recorded in the session at step 5). One plain sentence, first thing in the file, no heading and no label, saying which part of the change the review could not cover — a caveat on the _review_, never a fault of the work: the human must know a gap exists before reading a clean result as complete. In the normal case — no gap — this slot is omitted entirely and the body starts at the status table.
+- **The status table** — with **no heading, label, or bold marker above it** (the table needs no announcement; a real heading here would end the body and orphan everything after it, and a faux one is one more literal to pin for no reader's benefit). **Exactly two columns**, the glossary's `status.columns` (requirement, outcome): one row per linked-issue requirement and per change the PR text declares; the outcome is the glossary's `status.outcomes` value with its emoji — `✅ <ok>` / `⚠️ <partial>` / `❌ <missing>` (English `✅ OK` / `⚠️ Partial` / `❌ Missing`). **No reason cell, no Note column, no prose anywhere in the table.** The _why_ behind a ⚠️ or ❌ lives in the finding block that backs the row, and a block posts only when checked — a reason in the table would be that finding's second telling inside the unconditionally-posted body, the exact leak that killed the verdict slot and, later, the Note column that once justified each outcome. The curator reads the why in the findings below the table; the author gets the outcome, and the checked findings carry the substance. After the table, if any: a bullet list of changes found in the diff but declared nowhere — flagged for alignment, not as faults.
 
-The faux heading is a **pinned literal from the glossary** (`status.heading`); do not paraphrase it — keep the glossary's exact term so it stays a stable, non-heading marker. Cross-cutting and pre-existing findings, formerly body paragraphs, are `###` blocks now — locationless, and under the third section (`Pre-existing`), respectively. The posting step folds the checked ones back into the PR-level comment, each group under its `##` heading text used **verbatim** as the label — so a label like "Pre-existing, out of scope" is the heading the human edited to, not vocabulary baked into the poster.
+Cross-cutting and pre-existing findings, formerly body paragraphs, are `###` blocks now — locationless, and under the third section (`Pre-existing`), respectively. The posting step folds the checked ones back into the PR-level comment, each group under its `##` heading text used **verbatim** as the label — so a label like "Pre-existing, out of scope" is the heading the human edited to, not vocabulary baked into the poster.
 
 ### `###` blocks — one finding each
 
@@ -245,7 +242,7 @@ Sort `###` blocks under the three `##` headings, always all three and always in 
 - **Pre-existing** — defects in untouched files, and the residue in touched files that no hunk causes or mirrors. Located at the defect itself (its lint requires the line _outside_ the changed ranges), validated like everything else, never in the status table, and last because by definition the floor of the priority order.
 - **Classify by defect-vs-decision, never big-vs-small.** Default a finding to Problems; move it only when it is a genuine open choice. Sloppiness is a defect like any other — typos, dead code, duplicated intent, a stray blank line, a mistranslation all spread by imitation if left unfixed.
 - **Never label severity or kind** (in any language): no "minor", "nit", "non-blocking", "cosmetic", "trivial", no separate "nits" group (bucketing the small ones is itself a soft "lesser" label), no "bug"/"standards" kind-tags — the wording already conveys what sort of thing it is. A reader who sees "minor" files it under "who cares" and stops; order tells them where to start without licensing them to stop.
-- **All three headings are always written, in order, even when a section is empty.** The section identity is positional — the posting step reads the 1st/2nd/3rd `##` as Problems/Observations/Pre-existing regardless of the label text — so omitting an empty section would shift the ones below it and misroute their findings. An empty section is just a heading with no blocks: it posts nothing, the verdict already says the result is clean, and it costs one line. (For the same reason the human should relabel headings, never delete them.)
+- **All three headings are always written, in order, even when a section is empty.** The section identity is positional — the posting step reads the 1st/2nd/3rd `##` as Problems/Observations/Pre-existing regardless of the label text — so omitting an empty section would shift the ones below it and misroute their findings. An empty section is just a heading with no blocks: it posts nothing and it costs one line. (For the same reason the human should relabel headings, never delete them.)
 
 ### Voice
 
@@ -261,7 +258,7 @@ Address the author in the second person ("the component still reads it from the 
 
 ### Worked example
 
-Illustrative shape — **write in the PR's actual language**, using its glossary for the section headings, the status faux-heading, and the table's outcomes and headers; this example happens to be an English PR, so it uses the `en` glossary. `owner/repo` and `<sha>` come from the snapshot (pr.json's url; state.json's head). The PR here moved a user-CMS page to its own route and claims "Fixes #839".
+Illustrative shape — **write in the PR's actual language**, using its glossary for the section headings and the table's outcomes and headers; this example happens to be an English PR, so it uses the `en` glossary. `owner/repo` and `<sha>` come from the snapshot (pr.json's url; state.json's head). The PR here moved a user-CMS page to its own route and claims "Fixes #839".
 
 ```markdown
 ---
@@ -272,14 +269,10 @@ base: <sha-of-base>
 runs: 1
 ---
 
-The work is solid and close to merge; what stands in the way is the detail page, which no longer opens after the route move.
-
-**Status:**
-
-| Requirement / Declared change | Outcome | Note |
-| --- | --- | --- |
-| R1 — Feature parity with the WP view | ⚠️ Partial | List is complete; the detail page is unreachable, see app-routing.module.ts L34 |
-| Rename `WpUserList` → `UserCmsList` (declared in the text) | ✅ OK | Consistent everywhere, tests included |
+| Requirement / Declared change | Outcome |
+| --- | --- |
+| R1 — Feature parity with the WP view | ⚠️ Partial |
+| Rename `WpUserList` → `UserCmsList` (declared in the text) | ✅ OK |
 
 Changes present in the diff but declared nowhere — neither in a linked issue nor in the PR text; for alignment, not as faults:
 
@@ -334,7 +327,7 @@ Either `formatDay` switches to the `getUTC*` counterparts, or the comment stops 
 Note what the example pins:
 
 - **Every checkbox is unchecked** — the machine never checks one; posting waits for the human's `[x]`.
-- **The verdict names the snag and stops** — no tour of the change, no inventory of the smaller findings, no severity words: the table carries the outcomes, the blocks carry the findings, and the verdict only judges. At ~25 words it is nowhere near the ceiling, and that is typical.
+- **The body opens at the status table** — no verdict, no summary, no label or prose above it: the review had full coverage, so the coverage-caveat slot is omitted and nothing else may take its place. The table carries the outcomes; the blocks carry everything else.
 - **Each Observation takes a side.** The alternatives are laid out and the review still says which it would pick and why; the question left open is _which alternative_, never _whether to bother_.
 - **The marquee finding locates at its cause.** The defective read at `user-cms-detail.component.ts` L52 is _outside_ the diff — the PR changed the route, not that line — so the location is the causing hunk (L34 of the routing module), the prose opens with the cause ("the route becomes…"), the affected line rides along as a permalink, and the fix is the last line. The anchor rule doing the lead-with-cause work by itself.
 - **Every block spends its prose on the defect.** What is wrong, what triggers it, what follows — the marquee finding, the longest here, covers all three in two causally chained sentences, and none of them retells the anchored code, which is left to the anchor, where the reader already has it.
@@ -343,7 +336,7 @@ Note what the example pins:
 - **The smallest Problem keeps the full shape** — statement, blank line, fix — with no "minor" tag and no quarantine: it ranks last by position alone.
 - **The Pre-existing fix carries no preamble.** The section heading classifies; the fix line is pure remedy, ready to be pasted into an issue unedited.
 - **The #839 question is the locationless block**: no single line _is_ the dependency on `WpToolsLocalApiService`, so its heading ends at the agent number, and when checked it travels to the PR-level comment, not inline. The pre-existing UTC comment sits under the third section (`Pre-existing`), located at the defect itself — a line no changed range contains, exactly as that section's lint demands — and closes with a fix paragraph written to be lifted into an issue.
-- **The status table cross-references by location link text** ("see app-routing.module.ts L34"), plain and unlinked — never by run or agent numbers.
+- **The status table says only how each requirement fared.** R1 reads ⚠️ Partial and nothing more — no reason cell, no pointer at the finding that makes it partial: the route finding below carries the why, and posts only if checked.
 
 The route finding also shows the voice at work: it glosses _path_ vs _query string_ in place and spells out the failure (`id` stays `0`, the guard fires) rather than assuming it — concept and consequence, never a retelling of the changed code itself. Teaching is additive by test: strip the gloss and the finding still stands.
 
@@ -353,7 +346,7 @@ Within one preparation, re-running the review **stacks onto** `REVIEW.md` instea
 
 The merge is one rule. For each finding in the run document: if a block with the same identity already exists in the curated file — checked or unchecked, wherever the human moved it, however they edited it — **skip it**, leaving the existing block untouched; otherwise **insert it, unchecked**, in its section at its priority position among the existing blocks (order is the only priority signal, so the position is a judgment made among the human's kept blocks too; recreate a missing `##` heading in the file's language, in the canonical order). Locationless findings have no machine-checkable identity and are **always inserted** — deduping them is the human's job, and the duplicates arrive unchecked, so the cost is reading, never posting.
 
-The machine never checks, unchecks, edits, or deletes an existing block, and never merges the body: the curated verdict and Stato stay verbatim; the run's fresh body is simply dropped. Frontmatter: bump `runs` by one — to exactly the run number fixed in the precondition, the one this run's files and inserted headings already carry — so the highest run number in the file marks what the last merge added. Blocks the new run did not reproduce stay where they are: runs are noisy; absence from run _n_ invalidates nothing.
+The machine never checks, unchecks, edits, or deletes an existing block, and never merges the body: the curated body — the status table and any coverage caveat — stays verbatim; the run's fresh body is simply dropped. Frontmatter: bump `runs` by one — to exactly the run number fixed in the precondition, the one this run's files and inserted headings already carry — so the highest run number in the file marks what the last merge added. Blocks the new run did not reproduce stay where they are: runs are noisy; absence from run _n_ invalidates nothing.
 
 Curation, stated once for the human's benefit: **leave unwanted findings unchecked rather than deleting them**. Deleting is allowed but does not persist — a later run can legitimately reinsert the finding, unchecked. After a merge, say in the session what was inserted; the run numbers in the file already say the rest.
 

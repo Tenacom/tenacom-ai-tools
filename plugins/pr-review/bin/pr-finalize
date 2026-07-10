@@ -31,15 +31,15 @@ posted as an APPROVE; with any checked finding — in any of the three sections,
 since the checkbox (not the section) is the blocking signal — it is a
 REQUEST_CHANGES. COMMENT is not used: GitHub drops a PR out of "review
 requested" the moment any review lands, regardless of event, so a non-committal
-COMMENT would only deny the author a next-step signal. GitHub also requires a
-body on a REQUEST_CHANGES; if every checked finding is an inline comment and no
-summary sits above the first section, the body would be empty and the post is
-refused (write a summary, then re-run) rather than faked.
+COMMENT would only deny the author a next-step signal. An empty body is fine:
+GitHub requires a REQUEST_CHANGES review to carry a body OR comments (verified
+empirically; the docs' "body is required" wording overstates it), and every
+REQUEST_CHANGES this tool sends carries one or the other by construction.
 
 No inline comment is ever out-of-diff, so the all-or-nothing post is safe by
 construction. The hard refusals are a moved PR head, an already-posted
-preparation, a change-requesting review with an empty body, and a pending
-review carrying replies or file-level comments (see below).
+preparation, and a pending review carrying replies or file-level comments (see
+below).
 
 The curator's own pending GitHub review (the "Start a review" flow) would 422
 that POST — GitHub allows one pending review per user per PR. Instead of
@@ -190,7 +190,7 @@ def in_diff(ranges: dict[str, list[tuple[int, int]]], path: str, line: int) -> b
 
 
 def parse_review(text: str) -> tuple[str, list[Section]]:
-    """Split REVIEW.md into its verdict body and its ## sections.
+    """Split REVIEW.md into its body and its ## sections.
 
     Frontmatter is skipped (the snapshot is the source of truth for pr/head).
     The body is everything up to the first ## heading. Each section carries its
@@ -315,8 +315,9 @@ def route(sections: list[Section], ranges: dict[str, list[tuple[int, int]]],
 
 
 def assemble_body(body: str, fold_groups: list[tuple[str, str, list[str]]]) -> str:
-    """The PR-level comment: verdict, then each contributing section under its
-    label, with its preamble copied verbatim, then its findings."""
+    """The PR-level comment: the curated body (status table and any coverage
+    caveat), then each contributing section under its label, with its preamble
+    copied verbatim, then its findings."""
     parts: list[str] = []
     if body:
         parts.append(body)
@@ -569,19 +570,11 @@ def main(argv: list[str]) -> int:
     # of writing it, so it blocks too.
     event = "REQUEST_CHANGES" if (comments or fold_count or imported) else "APPROVE"
 
-    # GitHub requires a body on a REQUEST_CHANGES. The paths to an empty one
-    # here: an all-inline block with no verdict prose and nothing folded, or a
-    # pending-comment import over a bare REVIEW.md with no draft body — a
-    # couple of blank lines do not count, hence the strip. Refuse loudly rather
-    # than send a request that would 422.
-    if event == "REQUEST_CHANGES" and not body_text.strip():
-        die("requesting changes, but the review body is empty: every finding — "
-            "imported pending comments included — posts as an inline comment, "
-            "and there is neither a summary above the first section nor a "
-            "pending-review draft body, so GitHub would reject the review. Add a "
-            "short summary at the top of REVIEW.md (before the first ## section), "
-            "then re-run.")
-
+    # An empty body is fine. GitHub requires a REQUEST_CHANGES review to carry
+    # a body OR comments (verified empirically; the docs' "body is required"
+    # wording overstates it), and REQUEST_CHANGES here implies comments,
+    # fold_count, or imported — and any folded finding makes the body
+    # non-empty — so every request this sends is legal by construction.
     payload = {"body": body_text, "event": event, "comments": comments + imported}
     recap = format_recap(sections, comments, fold_count, event, imported,
                          bool(draft_body))
