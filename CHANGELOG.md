@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 Please refer to each plugin's `CHANGELOG.md` file for details.
 
+## 2026-07-11
+
+- Updated `pr-review` to version 2.1.0
+
 ## 2026-07-10
 
 - Updated `pr-review` to version 2.0.0

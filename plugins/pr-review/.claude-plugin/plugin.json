@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "pr-review",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "A complete system for AI-assisted GitHub pull request reviews.",
   "author": {
     "name": "Riccardo De Agostini (@rdeago), Claude Opus 4.8, Claude Fable 5"

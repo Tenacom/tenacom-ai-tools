@@ -13,6 +13,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changes to existing features
 
+### Bugs fixed in this release
+
+### Known problems introduced by this release
+
+## [2.1.0](https://github.com/Tenacom/tenacom-ai-tools/releases/tag/pr-review/2.1.0) (2026-07-11)
+
+### New features
+
+### Changes to existing features
+
 - **The review body no longer opens with a verdict paragraph.**
   Verdict paragraphs observed during real-world use of `pr-review` consistently failed to convey any useful information and were often in need of a rewrite. That was additional curation work for no real value, and is now no longer necessary.
 - **The status table in the review body has lost the `Status:` label above it.**
