@@ -176,6 +176,15 @@ launch_review() {
   # .git and the review's snapshot/run dirs; Read/Edit/Write bypass the sandbox, so the agents still
   # write REVIEW.md and the run dir.
   local settings="${SANDBOX_SETTINGS//@@TOP@@/$top}"
+  # A beat before the exec: the review session takes over the terminal and scrolls everything above
+  # away, so this is the only chance to read what preparation did (a skipped dependency sync, a
+  # force-push, a head that moved). Not a confirmation — running the command was the decision — so
+  # Enter continues and Ctrl-C is the way out. Without a terminal the /dev/tty redirections fail,
+  # and the launch proceeds unpaused rather than hanging on a read nobody can answer.
+  if { : < /dev/tty; } 2>/dev/null; then
+    printf 'pr-review: press Enter to launch the review (Ctrl-C to stop here). ' > /dev/tty
+    read -r _ < /dev/tty || true
+  fi
   log "launching sandboxed review session: claude \"$prompt\""
   # Effort is pinned here, not in skill frontmatter: the env var beats every
   # other scope (user settings, /effort residue, frontmatter), reaches

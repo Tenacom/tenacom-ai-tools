@@ -274,6 +274,15 @@ and early Observations all ended in "up to you". Two contracts, both in `SKILL.m
   idea why `ugrep` is needed) gets the plugin abandoned. So this list deliberately never fails closed
   on a search tool, and the SKILL never gates the review on one resolving.
 - Launch pins max effort: `exec env CLAUDE_CODE_EFFORT_LEVEL=max claude --settings … "/pr-review:run"`.
+- **Launch waits for an Enter, unconditionally.** The `exec` hands the terminal to the review session,
+  which scrolls preparation's output away unread — a skipped dependency sync, a force-push, a moved
+  head. So `launch_review` pauses on `/dev/tty` before the `exec`, on **both** call sites (fresh prep
+  and relaunch), after the sandbox-deps preflight (a missing `bwrap` must still fail fast, not after a
+  keypress). It is a **pause, not a confirmation**: running the command was the decision, so Enter
+  continues and Ctrl-C is the only exit — no `[y/N]`, and no `--no-pause` opt-out (an unshipped flag
+  is easy to add; a shipped one is a contract). The only escape is structural: with no terminal the
+  `/dev/tty` redirections fail and the launch proceeds unpaused, so a scripted run cannot hang on a
+  read nobody can answer.
 
 ### Never-execute rule
 

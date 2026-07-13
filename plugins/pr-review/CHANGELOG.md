@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changes to existing features
 
+- **`pr-review` now waits for you to press Enter before it launches the review session.**
+  The session takes over the terminal and scrolls away everything preparation printed, so what it did — a force-push, a dependency sync that was skipped, a head that moved — went unread.
+  Press Ctrl-C at the prompt to stop there instead, with the prepared branch checked out.
+
 ### Bugs fixed in this release
 
 ### Known problems introduced by this release

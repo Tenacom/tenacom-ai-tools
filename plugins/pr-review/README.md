@@ -105,6 +105,8 @@ pr-review 142
 
 This prepares `pr/142`: it checks out the branch, rebases it, and, only if the rebase rewrote the branch, asks at the terminal before force-pushing, so the PR head on GitHub matches what you review. It then captures the GitHub snapshot into `./.pr-review/` and launches an interactive sandboxed `claude` session running `/pr-review:run`. The review reads the snapshot and the checkout, runs its six lanes plus a validation pass, and writes `REVIEW.md` at the repo root. It makes no network calls.
 
+Just before the review session starts, `pr-review` waits for you to press Enter. The session takes over the terminal, so this is your chance to read what preparation did; press Ctrl-C instead of Enter to stop there and leave the prepared branch checked out.
+
 To prepare without reviewing, say to inspect the tree first, use `pr-review prepare 142`; then review later with `pr-review 142` or, from an already-open session on the prepared branch, `/pr-review:run`.
 
 ### Curate `REVIEW.md`
@@ -198,7 +200,7 @@ A finalized preparation is closed: a second `pr-finalize` refuses, and so does a
 
 The commands you run yourself, from a repository root:
 
-- **`pr-review`**, a terminal command (self-contained bash). Prepares the PR branch (fetch, snapshot, recreate base, `gh pr checkout`, rebase, confirmed force-push) and launches the sandboxed review session.
+- **`pr-review`**, a terminal command (self-contained bash). Prepares the PR branch (fetch, snapshot, recreate base, `gh pr checkout`, rebase, confirmed force-push) and, once you press Enter, launches the sandboxed review session.
 - **`pr-finalize`**, a terminal command (self-contained Python 3). Posts the curated `REVIEW.md` to GitHub as one review object.
 - **`install`**, a one-time setup step (`/pr-review:install`) that puts the two commands on your `PATH`. See [Installation](#installation).
 
@@ -292,7 +294,7 @@ A file present for a built-in language overrides the built-in, so you can tune t
 
 ## Reference
 
-- **`pr-review <id>`** prepares and reviews; **`pr-review prepare <id>`** prepares only; **`/pr-review:run`** runs the review in an already-prepared session.
+- **`pr-review <id>`** prepares and reviews, pausing for an Enter before the review session starts; **`pr-review prepare <id>`** prepares only; **`/pr-review:run`** runs the review in an already-prepared session.
 - **`pr-finalize`** posts; **`pr-finalize --dry-run`** previews the payload and posts nothing. A pending GitHub review of yours on the PR is folded into the post (and deleted), after confirmation.
 - **`/pr-review:install`** puts the two commands on your `PATH` (run once, at install).
 - **The `run` skill's `SKILL.md` is the spec** for the review and for the `REVIEW.md` grammar: the three lexical rules, the `###` heading shape, the checkbox-as-curation primitive, the three sections, the anchor lint, the voice, and the worked example. This README does not restate it.
