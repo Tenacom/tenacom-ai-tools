@@ -38,7 +38,9 @@
 # clobber anything pushed to the PR meanwhile). The push is part of the
 # preparation — review links must match the PR head on GitHub, so no push means
 # no review; declining, or a failed push, fails the preparation. Idempotent: a
-# re-run finds no rebase needed and asks nothing. Finally launch `claude`
+# re-run finds no rebase needed and asks nothing. Then, if the repo opts in with
+# a .claude/pr-review/sync-deps.sh, run it (from the BASE branch) to sync the
+# installed dependencies to the PR's manifests. Finally launch `claude`
 # interactively, sandbox enabled for this session only (via --settings;
 # .claude/settings.local.json is never touched), with "/pr-review:run"
 # as the initial prompt. Preparation runs OUTSIDE the sandbox (it needs network
@@ -383,11 +385,7 @@ fi
 
 # 15. The canonical diff — computed here, once, post-rebase; every review agent
 #     reads this file and never re-derives it (a re-derivation with a different
-#     base or flags would silently change the review surface). Then the state
-#     marker, written LAST: its presence means the capture is complete and
-#     consistent — a failed preparation leaves no state.json, and the review
-#     refuses to run without one. `head` is the post-push truth: thanks to the
-#     force-push above, it is also the PR head on GitHub.
+#     base or flags would silently change the review surface).
 git diff "$base_ref"..HEAD > "$state_dir/canonical.diff"
 git diff --name-only "$base_ref"..HEAD > "$state_dir/changed-files.txt"
 
@@ -400,22 +398,102 @@ git diff --name-only "$base_ref"..HEAD > "$state_dir/changed-files.txt"
 # (the completeness marker), so a failed assembly leaves no snapshot and the review
 # refuses to run rather than proceed with no rules.
 log "assembling the base-sourced rule set …"
-pr-assemble-rules "$(git rev-parse "$base_ref")" "$state_dir/changed-files.txt" "$state_dir/rules" \
+base_sha="$(git rev-parse "$base_ref")"
+pr-assemble-rules "$base_sha" "$state_dir/changed-files.txt" "$state_dir/rules" \
   || die "failed to assemble the base rule set. The review will not run without it — re-run to re-prepare."
 
+# 16. The dependency sync hook — the one thing in the whole preparation that runs code, and it
+#     runs only because the reviewed repo asked for it. A PR branch usually declares different
+#     dependencies than the tree the reviewer had checked out before: node_modules/ or vendor/
+#     stays synced to the PREVIOUS checkout, and the review's agents READ those trees to resolve
+#     the APIs the PR calls against — a stale tree means wrong signatures, phantom findings, or
+#     missed real ones. Which package manager, which flags, which lock file is repo-specific
+#     toolchain knowledge the plugin cannot guess, so it offers a hook instead: an optional
+#     .claude/pr-review/sync-deps.sh in the repo. Absent → silently skipped; the feature is pure
+#     opt-in, and no auto-detection fallback is coming (heuristics would be a second, worse
+#     contract).
+#
+#     Sourced from the BASE branch, like the rule set, and for a strictly harder reason: the
+#     rules are read from the base so a PR cannot rewrite the standards it is judged against
+#     (the CODEOWNERS trick), but this is an EXECUTABLE — a fork PR editing it would be
+#     arbitrary unsandboxed code execution on the reviewer's machine. Same logic, higher stakes.
+#     It is extracted into the snapshot (.pr-review/sync-deps.sh) rather than run from the
+#     checkout, so a post-mortem can always answer "what exactly ran?"; the head's copy, if it
+#     differs, is announced and ignored. Run via `bash` (no reliance on the exec bit — hence the
+#     .sh), unsandboxed, with network: preparation already is the network-capable phase.
+#
+#     The residual hole is real and deliberate: the script's whole job is to run an installer
+#     against HEAD-CONTROLLED manifests, so a malicious PR's lifecycle scripts (or a poisoned
+#     dependency it adds) execute here, unsandboxed. The repo owner who commits the script
+#     accepts that; the README says so loudly and recommends `npm ci --ignore-scripts` /
+#     `composer install --no-scripts --no-plugins`. This is why prep must never gain a second
+#     execution path by accident: the invariant is "preparation executes nothing except this,
+#     and only on the repo's explicit invitation".
+#
+#     Guards, symmetric with the clean-tree entry check (section 5): the script may install
+#     things, and nothing else. A nonzero exit, a moved HEAD, a switched branch, or a dirty tree
+#     each fail the preparation, naming what the script did wrong. No auto-reset — a buggy
+#     script's mess is evidence, not something to silently destroy. And it runs BEFORE state.json
+#     (below): a failed sync leaves no completeness marker, so the review refuses to run, exactly
+#     like a failed rules assembly.
+#
+#     Its output goes to stderr, with the rest of the preparation's progress: the reviewer must
+#     see the installer's chatter (a poorly-written script can exit 0 on a failed `npm ci`, and
+#     a script doing something fishy shows it there), while stdout stays the machine-readable
+#     JSON object section 18 prints.
+sync_script=".claude/pr-review/sync-deps.sh"
+synced_deps=false
+# A REGULAR FILE, or nothing — and the mode field is the only thing that says so. `git show
+# <sha>:<dir>` on a tree succeeds and prints a bare-filename listing, which fed to bash would run
+# those names as commands; a symlink is reported by ls-tree as type "blob" too, and its "content"
+# is the link target, which bash would likewise run. Both are refused here rather than executed.
+# An entry that exists but is neither is a misconfiguration, and a misconfigured hook must fail
+# loudly: silently skipping it would leave the repo owner believing the sync runs when it does not.
+sync_entry="$(git ls-tree "$base_sha" -- "$sync_script")"
+if [[ -n "$sync_entry" ]]; then
+  sync_blob="$(printf '%s\n' "$sync_entry" | awk '$1 ~ /^100/ && $2 == "blob" { print $3 }')"
+  [[ -n "$sync_blob" ]] \
+    || die "$sync_script exists on $base_ref but is not a regular file (mode $(printf '%s\n' "$sync_entry" | awk '{ print $1 }')). The dependency-sync hook must be a plain shell script — a directory or a symlink is refused, not executed. Fix it on $base_ref, then re-run to re-prepare."
+  head_blob="$(git ls-tree HEAD -- "$sync_script" | awk '$1 ~ /^100/ && $2 == "blob" { print $3 }')"
+  [[ "$head_blob" == "$sync_blob" ]] \
+    || log "! $sync_script differs on the PR head; running the base version."
+  git cat-file blob "$sync_blob" > "$state_dir/sync-deps.sh"
+  branch_before="$(git rev-parse --abbrev-ref HEAD)"
+  head_before="$(git rev-parse HEAD)"
+  log "syncing dependencies ($sync_script, from $base_ref) …"
+  # The branch check comes before the HEAD check: a script that checks out another branch trips
+  # both, and "switched the branch" is the more useful diagnosis. HEAD-moved then catches what is
+  # left — a commit or a reset on the branch we are standing on.
+  bash "$state_dir/sync-deps.sh" >&2 \
+    || die "$sync_script failed (see its output above). Dependencies are not in sync with the PR — not ready to review. Fix the script (or its inputs), then re-run to re-prepare."
+  [[ "$(git rev-parse --abbrev-ref HEAD)" == "$branch_before" ]] \
+    || die "$sync_script switched the checked-out branch (from $branch_before to $(git rev-parse --abbrev-ref HEAD)). It must install dependencies and nothing else. The tree is left as the script made it — inspect it, fix the script, then re-run to re-prepare."
+  [[ "$(git rev-parse HEAD)" == "$head_before" ]] \
+    || die "$sync_script moved HEAD (from $head_before to $(git rev-parse HEAD)). It must install dependencies and nothing else. The tree is left as the script made it — inspect it, fix the script, then re-run to re-prepare."
+  [[ -z "$(git status --porcelain)" ]] \
+    || die "$sync_script left the working tree dirty. It must install dependencies and nothing else — a package manager that rewrites a lock file (npm install rather than npm ci, composer update rather than composer install) is the usual cause. The tree is left as the script made it — inspect it with 'git status', fix the script, then re-run to re-prepare."
+  synced_deps=true
+fi
+
+# 17. The state marker, written LAST: its presence means the capture is complete and consistent —
+#     a failed preparation leaves no state.json, and the review refuses to run without one. `head`
+#     is the post-push truth: thanks to the force-push above, it is also the PR head on GitHub.
+#     `syncedDeps` records whether the hook ran, so a post-mortem can tell a review of a synced
+#     tree from one of a stale tree; nothing reads it today.
 cat > "$state_dir/state.json" <<JSON
 {
   "prId": "$pr_id",
   "baseBranch": "$base_ref",
-  "baseSha": "$(git rev-parse "$base_ref")",
+  "baseSha": "$base_sha",
   "head": "$(git rev-parse HEAD)",
   "rebased": $rebased,
   "forcePushed": $force_pushed,
+  "syncedDeps": $synced_deps,
   "capturedAt": "$(date -u +%FT%TZ)"
 }
 JSON
 
-# 16. Emit the prepared state as JSON on stdout.
+# 18. Emit the prepared state as JSON on stdout.
 cat <<JSON
 {
   "prId": "$pr_id",
@@ -427,12 +505,13 @@ cat <<JSON
   "crossRepo": $cross_repo,
   "rebased": $rebased,
   "forcePushed": $force_pushed,
+  "syncedDeps": $synced_deps,
   "artifacts": "$state_dir",
   "url": "$url"
 }
 JSON
 
-# 17. Review, or stop here if prepare only.
+# 19. Review, or stop here if prepare only.
 if [[ -n "$prep_only" ]]; then
   log "$local_pr is prepared and checked out. Review with: pr-review $pr_id — or run /pr-review:run from a Claude session on this branch."
   exit 0
