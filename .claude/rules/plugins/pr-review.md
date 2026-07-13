@@ -282,6 +282,65 @@ tree, non-deterministic third surface). A behavioural question that `Read`
 cannot settle becomes a finding stating the question and the experiment — it is not answered
 by running anything.
 
+Preparation, likewise, executes nothing — with exactly **one** documented exception, below. Do
+not add a second: every new execution path in prep is unsandboxed, networked, and runs before
+the boundary closes.
+
+### Dependency sync hook (opt-in, the one thing prep executes)
+
+An optional, **repo-provided** `.claude/pr-review/sync-deps.sh` that `pr-review` runs during
+preparation (Tenacom/tenacom-ai-tools#13). Absent → silently skipped; the plugin ships none and
+**auto-detects nothing** — package-manager heuristics would be a second, worse contract, and the
+script existing at all _is_ the repo's opt-in. Why it exists: the review never executes the PR,
+but its agents **read** `node_modules/`/`vendor/` to resolve the APIs the PR calls against, and
+those trees stay synced to the reviewer's _previous_ checkout — stale means wrong signatures,
+phantom findings, missed real ones. Which manager, which flags, which lock file is repo-specific
+knowledge the plugin cannot have; hence a hook, not a feature.
+
+- **Base-sourced, like the rule set, for a strictly harder reason.** Extracted from `baseSha`
+  (`git ls-tree` + `git cat-file`), never read from the head checkout. For the rules, base-sourcing
+  stops a PR rewriting the standards it is judged against; for an **executable** it stops arbitrary
+  unsandboxed code execution on the reviewer's machine. Same CODEOWNERS logic, higher stakes. When
+  the head's copy differs, one log line says so and the base version runs anyway.
+- **Only a regular file** (mode `100644`/`100755`) is accepted; an entry that exists and is not one
+  **fails loudly**. `git show <sha>:<dir>` on a tree prints a bare-filename listing, and a symlink
+  is type `blob` whose "content" is its target — fed to `bash`, both execute something. And a
+  misconfigured hook must never look like an absent one, or the owner believes a sync runs that does
+  not.
+- **Extracted into the snapshot** (`.pr-review/sync-deps.sh`) and run from there, so a post-mortem
+  can answer "what exactly ran?". Invoked `bash .pr-review/sync-deps.sh` from the repo root — no
+  reliance on the exec bit, hence the `.sh`.
+- **Ordering: after the branch is final (checkout, rebase, force-push) and before `state.json`.** A
+  failed sync leaves no completeness marker, so the review refuses to run — exactly like a failed
+  rules assembly. It runs after the diff and the rules assembly so the cheap, deterministic steps
+  fail first. `state.json` gains `syncedDeps`; nothing consumes it (post-mortem only).
+- **Guards, symmetric with the clean-tree entry check:** nonzero exit, a switched branch, a moved
+  `HEAD`, or a non-empty `git status --porcelain` each fail the preparation, naming what the script
+  did wrong. Branch is checked before `HEAD` (a checkout trips both; "switched the branch" is the
+  better diagnosis). **No auto-reset** — a buggy script's mess is evidence, not something to
+  silently destroy. The dirty-tree guard is untracked-sensitive by design: it is what catches
+  `npm install` rewriting a drifted lock file.
+- **Output to stderr**, with the rest of prep's progress — the reviewer must see the installer's
+  chatter (a sloppy script can exit 0 on a failed install). stdout stays the machine-readable JSON.
+- **The accepted hole, stated loudly in the README:** the script's job is to run an installer
+  against **head-controlled manifests**, so a malicious PR's lifecycle scripts or a poisoned new
+  dependency execute unsandboxed, with network, as the reviewer. Base-sourcing cannot fix that —
+  the danger is in what the PR feeds the script. The repo owner who commits the file accepts it;
+  the README recommends `npm ci --ignore-scripts` and `composer install --no-scripts --no-plugins`,
+  and says not to use the hook at all if the toolchain cannot install without executing PR code.
+- **Not in scope, deliberately:** an argument/environment contract (v1 passes nothing — "sync the
+  current checkout" needs no parameters, and an unshipped contract extends easily), and a
+  post-review resync hook (`pr-review` never switches back, so there is nowhere to hang it). The
+  relaunch path skips preparation and the script with it; `pr-review prepare` runs it — "ready to
+  inspect" includes dependencies.
+- **The hook is not the reviewer's own resync tool, and the README says so.** After a review the
+  tree is synced to the PR, so the reviewer must reinstall before resuming their own work — with
+  the project's ordinary install command, **never** by re-running `sync-deps.sh`. A well-written
+  hook installs _defensively_ (`--ignore-scripts`, `--no-scripts --no-plugins`) because it faces a
+  stranger's manifests; development needs exactly those lifecycle scripts and plugins to have run.
+  Re-running it yields dependencies that look installed and quietly misbehave. (Issue #13 proposed
+  the by-hand re-run as the answer here; it is wrong for this reason. Do not restore it.)
+
 ### Base-sourced rule set
 
 The standards agents treat the project rule set as **authoritative instruction** — agent 4
@@ -301,6 +360,14 @@ rule-set half of Tenacom/tenacom-ai-tools#1 M3.
   source under `.pr-review/rules/` (repo-relative path, frontmatter intact) plus a
   `manifest.json` (per-file kind + scope + inlined/unresolved imports). An empty manifest — a
   repo with no rules — is valid, not an error.
+- **`.claude/pr-review/` now holds two kinds of base-sourced artifact, gathered by two different
+  hands.** The glossary overrides (`strings.*.json`) are rule-set material: `pr-assemble-rules`
+  copies them into `.pr-review/rules/`, and the skill reads them there. `sync-deps.sh` (see
+  Dependency sync hook) is **not** rule-set material — it is an executable, extracted by `pr-review`
+  itself straight into `.pr-review/sync-deps.sh`, and the sandboxed review never touches it. Same
+  directory in the consuming repo, same base-sourcing rationale, different consumer: do not "unify"
+  them by teaching `pr-assemble-rules` to gather the script — the rule set is data handed to a
+  model, and the script is code handed to `bash`.
 - **Why prep, not the skill.** Base versions live only as git objects the sandboxed review
   cannot reach (`git show` is neither allow-listed nor on the never-touch-history surface).
   Prep has full git, so it gathers once into a snapshot artifact beside `canonical.diff`. This

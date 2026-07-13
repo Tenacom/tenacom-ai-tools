@@ -4,12 +4,12 @@ An AI-assisted PR-review pipeline for GitHub repositories, built on Claude Code 
 
 Human review is thorough but slow; AI review is fast but flawed. `pr-review` does not try to automate review away — it splits the work where each side is strongest. The AI does the heavy lifting: reading, cross-checking, drafting findings into a structured `REVIEW.md`. You make every call that matters: nothing reaches GitHub until you tick it. Each known weakness of AI review gets a structural answer, not a promise:
 
-| _AI review tends to…_                 | _`pr-review` answers with…_                                                                                   |
-| ------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| miss findings on a single pass        | idempotent re-runs: new findings stack into `REVIEW.md`, duplicates merge, curation survives                  |
-| judge the diff out of context         | a review run inside the repository, against the full checkout                                                 |
-| hallucinate problems                  | human curation as the core primitive: unchecked findings post nothing                                         |
-| write odd, needlessly technical prose | fixed wording instructions and one plain-spoken voice that explains concepts in place                         |
+| _AI review tends to…_                 | _`pr-review` answers with…_                                                                  |
+| ------------------------------------- | -------------------------------------------------------------------------------------------- |
+| miss findings on a single pass        | idempotent re-runs: new findings stack into `REVIEW.md`, duplicates merge, curation survives |
+| judge the diff out of context         | a review run inside the repository, against the full checkout                                |
+| hallucinate problems                  | human curation as the core primitive: unchecked findings post nothing                        |
+| write odd, needlessly technical prose | fixed wording instructions and one plain-spoken voice that explains concepts in place        |
 
 One more property matters when the PR comes from a stranger: the part that reads attacker-influenceable text runs sandboxed, with zero network access and zero prompts — its entire GitHub context is a snapshot taken beforehand.
 
@@ -22,11 +22,13 @@ One more property matters when the PR comes from a stranger: the part that reads
   - [Prepare and review](#prepare-and-review)
   - [Curate `REVIEW.md`](#curate-reviewmd)
   - [Preview, then post](#preview-then-post)
+  - [Your own findings: draft them as a pending review](#your-own-findings-draft-them-as-a-pending-review)
   - [Re-runs and re-preparation](#re-runs-and-re-preparation)
 - [How it works](#how-it-works)
   - [The moving parts](#the-moving-parts)
   - [Why the split](#why-the-split)
   - [Artifacts](#artifacts)
+- [Keeping dependencies in sync](#keeping-dependencies-in-sync)
 - [Language support](#language-support)
 - [Updating and uninstalling](#updating-and-uninstalling)
 - [Reference](#reference)
@@ -214,6 +216,43 @@ Preparation needs the network and writes to `.git/config`, so it runs **unsandbo
 ### Artifacts
 
 All review artifacts (`.pr-review/`, `.pr-review-run/`, and `REVIEW.md`) are hidden from `git status` through `.git/info/exclude`, maintained by the preparation, never through `.gitignore`. They never enter the project's history and never make the next preparation see a dirty tree.
+
+---
+
+## Keeping dependencies in sync
+
+The review never runs the code it reviews, but its agents do **read** your installed dependencies, to resolve the APIs the PR calls against. That reading is only as good as the tree: `node_modules/` or `vendor/` is still synced to whatever you had checked out _before_ you started, not to what the PR declares. A PR that bumps a library reads against the old one — wrong signatures, invented findings, real ones missed.
+
+`pr-review` cannot fix this on its own: which package manager, which flags, which lock file is knowledge only your repository has. So it offers a hook. Commit a shell script at **`.claude/pr-review/sync-deps.sh`** in the repository being reviewed, and the preparation runs it — with `bash`, from the repository root, so it needs no execute bit — after the PR branch is checked out and rebased, and before the review starts. No script, no behaviour: the feature is entirely opt-in, and nothing is auto-detected in its absence.
+
+```bash
+# .claude/pr-review/sync-deps.sh
+npm ci --ignore-scripts
+```
+
+The script's only job is to install dependencies. The preparation checks that this is all it did, and **fails the review** if the script exits nonzero, moves `HEAD`, switches branch, or leaves the working tree dirty — a failed sync produces no reviewable state at all, rather than a review of a tree nobody can vouch for. The mess a misbehaving script leaves is _not_ cleaned up: it is evidence, and `git status` is how you inspect it. The script's output goes to your terminal, so you can see the install happen (and see it go wrong even if the script forgets to fail).
+
+Two details worth knowing:
+
+- **The script is read from the PR's base branch, never from the PR.** Same rule as the project rules the review judges against — a pull request cannot rewrite it. If a PR touches the script, preparation says so and runs the base version anyway. To test a change to your own hook, merge it to the base branch first.
+- **`git status` must be clean afterwards**, so the installed dependencies have to land somewhere `.gitignore`d — as they normally do. This is also why the flags matter: `npm ci` respects the lock file, `npm install` rewrites it when it has drifted, which dirties the tree and fails the preparation. Prefer `npm ci` over `npm install`, and `composer install` over `composer update`.
+
+> [!WARNING]
+>
+> **This hook is a deliberate hole in the plugin's security posture, and you are the one opening it.**
+>
+> Everything else about the preparation is inert: it fetches, checks out, and reads. This script does not merely run — it runs an **installer**, against **manifests the pull request controls**, unsandboxed and with network access, on your machine. A malicious PR that adds an install-time lifecycle script to `package.json`, or that adds a dependency on a poisoned package, gets that code executed as you, outside the sandbox. No amount of care in `sync-deps.sh` changes this, because the danger is in what the PR feeds it.
+>
+> That is the trade you accept by committing the file, and it is why the plugin ships no such script and never guesses one. Where your toolchain tolerates them, prefer the flags that shut the door:
+>
+> - **`npm ci --ignore-scripts`** — `ci`, never `install` (which also rewrites a drifted lock file and would fail the preparation anyway).
+> - **`composer install --no-scripts --no-plugins`** — `install`, never `update`.
+>
+> If you review PRs from people you do not trust and your toolchain cannot install without executing their code, do not use this hook.
+
+**After the review, your own branch has the opposite problem:** the dependencies now match the PR you just reviewed, not the branch you go back to. Reinstall them before you resume work — with your project's ordinary install command (`npm ci`, `composer install`, whatever you normally run), **not** by re-running `sync-deps.sh`.
+
+The distinction matters. A well-written `sync-deps.sh` installs _defensively_, with the lifecycle scripts and plugins turned off, because it is aimed at a stranger's manifests. That is the right call for a review and the wrong one for your own tree: development needs those scripts and plugins to have run. Re-running the hook would leave you with dependencies that look installed and quietly misbehave.
 
 ---
 

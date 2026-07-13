@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### New features
 
+- **A repository can now have its dependencies synchronized to the PR before the review runs.**
+  Commit a `.claude/pr-review/sync-deps.sh` script (typically a single `npm ci --ignore-scripts` or `composer install --no-scripts --no-plugins` line) and preparation will run it, so the review reads the libraries the PR declares instead of the ones left over from your previous checkout. Repositories without the script are unaffected.
+  The script is read from the PR's base branch, so a pull request cannot rewrite it; preparation fails if the script fails, moves `HEAD`, switches branch, or leaves the working tree dirty.
+  Being an installer run against the PR's own manifests, it is also a deliberate security trade-off: read the warning in the README before adopting it.
+
 ### Changes to existing features
 
 ### Bugs fixed in this release
