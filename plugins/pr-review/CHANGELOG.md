@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### New features
 
+### Changes to existing features
+
+### Bugs fixed in this release
+
+### Known problems introduced by this release
+
+## [2.2.0](https://github.com/Tenacom/tenacom-ai-tools/releases/tag/pr-review/2.2.0) (2026-07-13)
+
+### New features
+
 - **A repository can now have its dependencies synchronized to the PR before the review runs.**
   Commit a `.claude/pr-review/sync-deps.sh` script (typically a single `npm ci --ignore-scripts` or `composer install --no-scripts --no-plugins` line) and preparation will run it, so the review reads the libraries the PR declares instead of the ones left over from your previous checkout. Repositories without the script are unaffected.
   The script is read from the PR's base branch, so a pull request cannot rewrite it; preparation fails if the script fails, moves `HEAD`, switches branch, or leaves the working tree dirty.
@@ -21,10 +31,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`pr-review` now waits for you to press Enter before it launches the review session.**
   The session takes over the terminal and scrolls away everything preparation printed, so what it did — a force-push, a dependency sync that was skipped, a head that moved — went unread.
   Press Ctrl-C at the prompt to stop there instead, with the prepared branch checked out.
-
-### Bugs fixed in this release
-
-### Known problems introduced by this release
 
 ## [2.1.0](https://github.com/Tenacom/tenacom-ai-tools/releases/tag/pr-review/2.1.0) (2026-07-11)
 
