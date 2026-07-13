@@ -464,8 +464,14 @@ if [[ -n "$sync_entry" ]]; then
   # The branch check comes before the HEAD check: a script that checks out another branch trips
   # both, and "switched the branch" is the more useful diagnosis. HEAD-moved then catches what is
   # left — a commit or a reset on the branch we are standing on.
-  bash "$state_dir/sync-deps.sh" >&2 \
-    || die "$sync_script failed (see its output above). Dependencies are not in sync with the PR — not ready to review. Fix the script (or its inputs), then re-run to re-prepare."
+  # The exit code is captured into a variable rather than read from $? after an `if !` (where the
+  # negation, not the script, would set it), and reported: an installer's code often IS the
+  # diagnosis (npm's 1 vs composer's 2), and it is the one thing a script that prints nothing
+  # still tells us.
+  sync_rc=0
+  bash "$state_dir/sync-deps.sh" >&2 || sync_rc=$?
+  (( sync_rc == 0 )) \
+    || die "$sync_script failed (exit code $sync_rc; see its output above). Dependencies are not in sync with the PR — not ready to review. Fix the script (or its inputs), then re-run to re-prepare."
   [[ "$(git rev-parse --abbrev-ref HEAD)" == "$branch_before" ]] \
     || die "$sync_script switched the checked-out branch (from $branch_before to $(git rev-parse --abbrev-ref HEAD)). It must install dependencies and nothing else. The tree is left as the script made it — inspect it, fix the script, then re-run to re-prepare."
   [[ "$(git rev-parse HEAD)" == "$head_before" ]] \
