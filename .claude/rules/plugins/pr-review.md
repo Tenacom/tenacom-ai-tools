@@ -301,7 +301,11 @@ knowledge the plugin cannot have; hence a hook, not a feature.
   (`git ls-tree` + `git cat-file`), never read from the head checkout. For the rules, base-sourcing
   stops a PR rewriting the standards it is judged against; for an **executable** it stops arbitrary
   unsandboxed code execution on the reviewer's machine. Same CODEOWNERS logic, higher stakes. When
-  the head's copy differs, one log line says so and the base version runs anyway.
+  the head's copy differs, one log line says so and the base version runs anyway. When the head has
+  one and the base does **not** — the PR is _adding_ the hook — a log line says it was not run and
+  names the fix (merge it to the base), then preparation continues: the repo has no working hook
+  yet, which is the same position as a repo that wants none, so this is a warning and never a stop.
+  Skipping silently there would read as a bug to the very person who just wrote the file.
 - **Only a regular file** (mode `100644`/`100755`) is accepted; an entry that exists and is not one
   **fails loudly**. `git show <sha>:<dir>` on a tree prints a bare-filename listing, and a symlink
   is type `blob` whose "content" is its target — fed to `bash`, both execute something. And a

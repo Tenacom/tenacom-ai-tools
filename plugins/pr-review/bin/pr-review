@@ -409,9 +409,9 @@ pr-assemble-rules "$base_sha" "$state_dir/changed-files.txt" "$state_dir/rules" 
 #     the APIs the PR calls against — a stale tree means wrong signatures, phantom findings, or
 #     missed real ones. Which package manager, which flags, which lock file is repo-specific
 #     toolchain knowledge the plugin cannot guess, so it offers a hook instead: an optional
-#     .claude/pr-review/sync-deps.sh in the repo. Absent → silently skipped; the feature is pure
-#     opt-in, and no auto-detection fallback is coming (heuristics would be a second, worse
-#     contract).
+#     .claude/pr-review/sync-deps.sh in the repo. Absent from the base → skipped, silently unless
+#     the PR is adding one (below); the feature is pure opt-in, and no auto-detection fallback is
+#     coming (heuristics would be a second, worse contract).
 #
 #     Sourced from the BASE branch, like the rule set, and for a strictly harder reason: the
 #     rules are read from the base so a PR cannot rewrite the standards it is judged against
@@ -450,7 +450,15 @@ synced_deps=false
 # An entry that exists but is neither is a misconfiguration, and a misconfigured hook must fail
 # loudly: silently skipping it would leave the repo owner believing the sync runs when it does not.
 sync_entry="$(git ls-tree "$base_sha" -- "$sync_script")"
-if [[ -n "$sync_entry" ]]; then
+if [[ -z "$sync_entry" ]]; then
+  # Not on the base, but on the head: the hook is being ADDED by this PR — the one case where
+  # "absent, so skipped" would look like a bug to the person who just wrote the file. Base-sourcing
+  # is exactly what makes it inert here, so say so and name the fix. A line of output, not a stop:
+  # the repo has no working hook yet, which is the same position as a repo that wants none.
+  if [[ -n "$(git ls-tree HEAD -- "$sync_script")" ]]; then
+    log "! $sync_script exists on the PR head but not on $base_ref — NOT run. The hook is always taken from the base branch, so a PR cannot introduce code into the preparation. Merge it into $base_ref for it to take effect."
+  fi
+else
   sync_blob="$(printf '%s\n' "$sync_entry" | awk '$1 ~ /^100/ && $2 == "blob" { print $3 }')"
   [[ -n "$sync_blob" ]] \
     || die "$sync_script exists on $base_ref but is not a regular file (mode $(printf '%s\n' "$sync_entry" | awk '{ print $1 }')). The dependency-sync hook must be a plain shell script — a directory or a symlink is refused, not executed. Fix it on $base_ref, then re-run to re-prepare."

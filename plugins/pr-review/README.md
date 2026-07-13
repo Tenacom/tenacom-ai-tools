@@ -234,7 +234,7 @@ The script's only job is to install dependencies. The preparation checks that th
 
 Two details worth knowing:
 
-- **The script is read from the PR's base branch, never from the PR.** Same rule as the project rules the review judges against — a pull request cannot rewrite it. If a PR touches the script, preparation says so and runs the base version anyway. To test a change to your own hook, merge it to the base branch first.
+- **The script is read from the PR's base branch, never from the PR.** Same rule as the project rules the review judges against — a pull request cannot rewrite it, and cannot introduce one. If a PR modifies the script, preparation says so and runs the base version anyway; if a PR _adds_ one the base does not have, preparation says so and runs nothing. Either way, **the hook only takes effect once it is on the base branch** — merge it there before expecting it to run, including the very first time you add it.
 - **`git status` must be clean afterwards**, so the installed dependencies have to land somewhere `.gitignore`d — as they normally do. This is also why the flags matter: `npm ci` respects the lock file, `npm install` rewrites it when it has drifted, which dirties the tree and fails the preparation. Prefer `npm ci` over `npm install`, and `composer install` over `composer update`.
 
 > [!WARNING]
