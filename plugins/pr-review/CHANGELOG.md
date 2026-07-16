@@ -15,8 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Bugs fixed in this release
 
-- **A multi-line finding whose last line sits outside the diff caused a 422 error when posting the review.**
-  `pr-finalize` now checks both ends of an inline comment's range against the diff and refuses up front, naming the file and the offending line, instead of letting the whole post fail with `422 Unprocessable Entity` ("Line could not be resolved"). Trim the finding's range to the changed lines, or move it to the Pre-existing section, and re-run.
+- **A multi-line finding with a start or end line outside the diff no longer breaks the review post with a 422.**
+  A GitHub inline comment can only anchor where both ends of its range land on changed lines, so such a finding failed the all-or-nothing post with an opaque `422 Unprocessable Entity` ("Line could not be resolved"). The review now keeps both ends of an inline finding's range inside the changed lines as it writes `REVIEW.md`, and `pr-finalize` re-checks both ends before posting — refusing up front and naming the file and the offending line or lines if one slips through, instead of letting the post fail. Trim the finding's range to the changed lines, or move it to the Pre-existing section, and re-run.
 
 ### Known problems introduced by this release
 
