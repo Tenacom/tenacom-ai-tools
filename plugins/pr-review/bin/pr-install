@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install-shims — put `pr-review`, `pr-finalize`, and `pr-assemble-rules` on the PATH.
+# pr-install — put `pr-review`, `pr-finalize`, and `pr-assemble-rules` on the PATH.
 #
 # This plugin ships the real scripts in its bin/ directory, which Claude Code adds to
 # the Bash tool's PATH while the plugin is enabled — but NOT to your interactive
@@ -14,7 +14,7 @@
 #
 # It is run two ways, both equivalent:
 #   - at install, and again after each plugin update:  claude -p /pr-review:install
-#   - by hand, if a link ever breaks: install-shims
+#   - by hand, if a link ever breaks: pr-install
 #
 # What it does, idempotently:
 #   1. Self-locates — the live plugin version's bin/ dir, even via a symlink.
@@ -50,7 +50,7 @@ for cmd in "${cmds[@]}"; do
   dst="$store/$cmd"
 
   [[ -f "$src" ]] \
-    || { printf 'install-shims: %s is missing from the plugin bin (%s) — broken install?\n' "$cmd" "$here" >&2; exit 1; }
+    || { printf 'pr-install: %s is missing from the plugin bin (%s) — broken install?\n' "$cmd" "$here" >&2; exit 1; }
 
   # 2. Refresh the stable copy only when it actually differs.
   if [[ ! -f "$dst" ]] || ! cmp -s "$src" "$dst"; then
@@ -68,20 +68,20 @@ for cmd in "${cmds[@]}"; do
     ln -s "$dst" "$link"
     changed=1
   else
-    printf 'install-shims: %s exists and is not a symlink — leaving it as is.\n' "$link" >&2
+    printf 'pr-install: %s exists and is not a symlink — leaving it as is.\n' "$link" >&2
   fi
 done
 
 # A status line (stderr): visible to the human on the explicit `claude -p` run,
 # routed to the debug log (not Claude's context) under the hook.
 if [[ "$changed" -eq 1 ]]; then
-  printf 'install-shims: pr-review, pr-finalize and pr-assemble-rules are linked in %s.\n' "$bindir" >&2
+  printf 'pr-install: pr-review, pr-finalize and pr-assemble-rules are linked in %s.\n' "$bindir" >&2
 else
-  printf 'install-shims: already current; nothing to do.\n' >&2
+  printf 'pr-install: already current; nothing to do.\n' >&2
 fi
 
 # The one thing this script cannot do: edit your interactive shell's PATH.
 case ":${PATH:-}:" in
   *":$bindir:"*) : ;;
-  *) printf 'install-shims: note — %s is not on your PATH. Add it (a fresh login shell usually does on Ubuntu/WSL once the dir exists).\n' "$bindir" >&2 ;;
+  *) printf 'pr-install: note — %s is not on your PATH. Add it (a fresh login shell usually does on Ubuntu/WSL once the dir exists).\n' "$bindir" >&2 ;;
 esac
