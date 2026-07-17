@@ -60,15 +60,18 @@ plugins/pr-review/
 │   ├── pr-review                #   prepare + launch (bash) — launcher execs /pr-review:run
 │   ├── pr-finalize              #   post (Python 3, stdlib only)
 │   ├── pr-assemble-rules        #   base-sourced rule set (Python 3, stdlib only) — prep helper
-│   └── pr-install               #   PATH bootstrap (bash, self-locating)
+│   ├── pr-install               #   PATH bootstrap (bash, self-locating)
+│   └── pr_review_lint.py        #   REVIEW.md grammar/model/linter (Python 3) — imported, not run
 ├── skills/
 │   ├── run/SKILL.md             #   the review — name: run → /pr-review:run; THE SPEC
 │   └── install/SKILL.md         #   /pr-review:install — thin trigger for pr-install
 └── README.md
 ```
 
-The four `bin/` files must be committed mode `755` (git tracks the bit; some output mounts
-drop it). A file that lost the bit fails to run as a bare command; `chmod +x` restores it.
+The four command scripts in `bin/` — `pr-review`, `pr-finalize`, `pr-assemble-rules`, `pr-install`
+— must be committed mode `755` (git tracks the bit; some output mounts drop it). A command that
+lost the bit fails to run as a bare command; `chmod +x` restores it. `pr_review_lint.py` is
+imported, never run, so it stays a normal mode-`644` file — do not mark it executable.
 
 ## Hard contracts — must hold
 
@@ -555,9 +558,11 @@ bumped to the precondition-fixed number.
   `pr-assemble-rules` under `~/.local/share/pr-review/bin` (refreshed only when `cmp` differs)
   and symlinks `~/.local/bin/{pr-review,pr-finalize,pr-assemble-rules}` at those copies.
   `pr-assemble-rules` is shimmed only so `pr-review` can find it by bare name during prep — not
-  an end-user command. Idempotent; repairs a wrong/missing link; **never clobbers a non-symlink
-  a human placed** (`[ -L ]` guard); all output to stderr (the stdout of a `claude -p` run is
-  injected into the model's context).
+  an end-user command. It also copies `pr_review_lint.py` into the same stable dir **without** a
+  symlink — `pr-finalize` (and `pr-check`) import it from beside their own copies, so it needs no
+  PATH entry and no execute bit. Idempotent; repairs a wrong/missing link; **never clobbers a
+  non-symlink a human placed** (`[ -L ]` guard); all output to stderr (the stdout of a `claude -p`
+  run is injected into the model's context).
 - **Copies, not symlinks-into-cache.** The plugin cache is version-keyed and an orphaned
   version dir is GC'd ~7 days later; a symlink into it would dangle. Our own copies are
   independent of the cache lifecycle, so a PATH entry can lag a version (until a session
