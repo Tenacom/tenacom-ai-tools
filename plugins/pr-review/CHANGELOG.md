@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changes to existing features
 
+- **`pr-finalize` now reports every problem in `REVIEW.md` at once, instead of stopping at the first.**
+  Problems found in `REVIEW.md` that would prevent posting of the review are now collected, sorted by position, and printed in one pass.
+  Each is printed in the `file:line:column: message` diagnostic format compilers use (`REVIEW.md:14:33: …`), which Visual Studio Code's terminal turns into a clickable link, with its guidance on the next indented line.
+
 - **All code links in `REVIEW.md` are now written in editor-navigable format.**
   Code links in prose and body can now be Ctrl-clicked in Visual Studio Code to open the link target in the editor.
   `pr-finalize` now rewrites every relative link to a permalink when it posts.
