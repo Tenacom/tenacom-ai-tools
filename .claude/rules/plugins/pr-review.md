@@ -60,10 +60,10 @@ plugins/pr-review/
 │   ├── pr-review                #   prepare + launch (bash) — launcher execs /pr-review:run
 │   ├── pr-finalize              #   post (Python 3, stdlib only)
 │   ├── pr-assemble-rules        #   base-sourced rule set (Python 3, stdlib only) — prep helper
-│   └── install-shims            #   PATH bootstrap (bash, self-locating)
+│   └── pr-install               #   PATH bootstrap (bash, self-locating)
 ├── skills/
 │   ├── run/SKILL.md             #   the review — name: run → /pr-review:run; THE SPEC
-│   └── install/SKILL.md         #   /pr-review:install — thin trigger for install-shims
+│   └── install/SKILL.md         #   /pr-review:install — thin trigger for pr-install
 └── README.md
 ```
 
@@ -549,8 +549,8 @@ bumped to the precondition-fixed number.
 - **`bin/` is the session PATH, not the shell PATH.** Files in `bin/` are invokable as bare
   commands inside any Bash tool call while the plugin is enabled — that is the model's PATH,
   not the user's interactive shell. `pr-review` must be typeable in a bare shell before any
-  session exists, hence the `install-shims` bootstrap.
-- **`install-shims` bootstrap (bash, self-locating).** Self-locates via
+  session exists, hence the `pr-install` bootstrap.
+- **`pr-install` bootstrap (bash, self-locating).** Self-locates via
   `readlink -f "${BASH_SOURCE[0]}"`. Keeps **copies** of `pr-review`, `pr-finalize`, and
   `pr-assemble-rules` under `~/.local/share/pr-review/bin` (refreshed only when `cmp` differs)
   and symlinks `~/.local/bin/{pr-review,pr-finalize,pr-assemble-rules}` at those copies.
