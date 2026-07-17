@@ -11,15 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### New features
 
-- **`pr-check` lints your curated `REVIEW.md` offline, before you post.**
-  Run `pr-check` from the repository root while curating: it reports every problem that would keep the review from posting — in the same clickable `REVIEW.md:line:column` format `pr-finalize` uses — or tells you the file is clean.
-  It touches only the filesystem (no network, no GitHub), so it answers instantly, and because it shares `pr-finalize`'s parser and linter, a file it calls clean is one `pr-finalize` will accept.
+- **New `pr-check` command lints your curated `REVIEW.md` offline, before you post.**
+  Run `pr-check` from the repository root while curating: it reports every problem that would keep the review from posting, or tells you the file is clean.
+  The format of reported problems is `file:line:column: message`, same as the diagnostic format compilers use (`REVIEW.md:14:33: …`); Visual Studio Code's terminal turns each reported problem into a clickable link.
 
 ### Changes to existing features
 
 - **`pr-finalize` now reports every problem in `REVIEW.md` at once, instead of stopping at the first.**
   Problems found in `REVIEW.md` that would prevent posting of the review are now collected, sorted by position, and printed in one pass.
-  Each is printed in the `file:line:column: message` diagnostic format compilers use (`REVIEW.md:14:33: …`), which Visual Studio Code's terminal turns into a clickable link, with its guidance on the next indented line.
+  Each is printed in the same format `pr-check` uses (see "New features" above), with its guidance on the next indented line.
 
 - **All code links in `REVIEW.md` are now written in editor-navigable format.**
   Code links in prose and body can now be Ctrl-clicked in Visual Studio Code to open the link target in the editor.
@@ -28,8 +28,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Bugs fixed in this release
 
-- **The on-`PATH` commands do not refresh themselves after a plugin update — re-run `claude -p /pr-review:install` to update them.**
-  Earlier documentation described a `SessionStart` hook that refreshed them automatically; it was never implemented. The manual re-run has always been necessary; only the docs were wrong.
+- **Documentation no longer mentions the non-existing `SessionStart` hook.**
+  Earlier documentation described a `SessionStart` hook that automatically refreshed files copied to `~/.local/share/pr-review/bin` and their symlinks in `~/.local/bin`.
+  The hook was never implemented, out of performance concerns. `claude -p /pr-review:install` is, and has always been, necessary after every upgrade of the `pr-review` plugin. Documentation now correctly states so.
 
 - **A multi-line finding with a start or end line outside the diff no longer breaks the review post with a 422.**
   A GitHub inline comment can only anchor where both ends of its range land on changed lines, so such a finding failed the all-or-nothing post with an opaque `422 Unprocessable Entity` ("Line could not be resolved"). The review now keeps both ends of an inline finding's range inside the changed lines as it writes `REVIEW.md`, and `pr-finalize` re-checks both ends before posting — refusing up front and naming the file and the offending line or lines if one slips through, instead of letting the post fail. Trim the finding's range to the changed lines, or move it to the Pre-existing section, and re-run.

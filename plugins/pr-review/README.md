@@ -188,14 +188,16 @@ You don't have to try posting to find out whether the file is ready. From the re
 pr-check    # lint REVIEW.md and report; posts nothing, changes nothing
 ```
 
-`pr-check` reads `REVIEW.md` and the prepared diff and reports every problem that would stop the review from posting — a code link with a broken fragment, a finding above the first section or in a spurious fourth one, a checked inline finding whose line falls outside the diff, a checked finding folded under an unlabeled heading — each as a `REVIEW.md:line:column` line you can Ctrl-click in the Visual Studio Code terminal. If nothing is wrong, it says so.
+`pr-check` reads `REVIEW.md` and the prepared diff and reports every problem that would stop the review from posting — a code link with a broken fragment, a finding above the first section or in a spurious fourth one, a checked inline finding whose line falls outside the diff, a checked finding folded under an unlabeled heading — each as a line formatted as `REVIEW.md:<line>:<column>: <message>`, that the Visual Studio Code terminal turns into a clickable link. If nothing is wrong, it says so.
 
-It runs entirely offline — no network, no GitHub, no writes — so it is instant and safe to run as often as you like while you tick boxes and edit. And it shares `pr-finalize`'s parser and linter, so a file `pr-check` calls clean is one `pr-finalize` will accept; it just gives you the answer now rather than at the end of `pr-finalize`'s live-head check and GitHub round-trip.
+`pr-check` runs entirely offline — no network, no GitHub, no writes — so it is instant and safe to run as often as you like while you tick boxes and edit. It shares `pr-finalize`'s parser and linter, so a file `pr-check` calls clean is one `pr-finalize` will accept; it just gives you the answer now rather than at the end of `pr-finalize`'s live-head check and GitHub round-trip.
 
-**Want the results in the editor's Problems panel?** `pr-check` prints the compiler-style `file:line:column: message` format Visual Studio Code parses natively, so a one-off task turns each problem into a clickable diagnostic — no extension needed. Add this to a `tasks.json` — either the reviewed repo's `.vscode/tasks.json`, or your own user tasks (**Tasks: Open User Tasks**) if you would rather not drop a file into someone else's project:
+**Want the results in Visual Studio Code's Problems panel?** `pr-check` prints the compiler-style `file:line:column: message` format Visual Studio Code parses natively, so a one-off task turns each problem into a clickable diagnostic — no extension needed. Add this to a `tasks.json` — either the reviewed repo's `.vscode/tasks.json`, or your own user tasks (**Tasks: Open User Tasks**) if you would rather not drop a file into someone else's project:
 
 ```json
 {
+  // See https://go.microsoft.com/fwlink/?LinkId=733558
+  // for the documentation about the tasks.json format
   "version": "2.0.0",
   "tasks": [
     {
