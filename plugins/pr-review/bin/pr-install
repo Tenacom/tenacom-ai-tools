@@ -18,14 +18,16 @@
 #
 # What it does, idempotently:
 #   1. Self-locates — the live plugin version's bin/ dir, even via a symlink.
-#   2. Copies the three scripts into a STABLE dir (~/.local/share/pr-review/bin),
-#      refreshing only when they differ (first run, or after a plugin update).
-#      The copies are independent of the version-pinned plugin cache, so a PATH
-#      entry can lag a version behind but can never dangle when an old cache
-#      version is garbage-collected (~7 days after an update).
-#   3. Points ~/.local/bin/<cmd> at the stable copy with a symlink — created if
-#      absent, repaired if it points elsewhere, and left untouched if a human
-#      put a real file there.
+#   2. Copies the three commands, and the shared pr_review_lint.py module they
+#      rely on, into a STABLE dir (~/.local/share/pr-review/bin), refreshing only
+#      when they differ (first run, or after a plugin update). The copies are
+#      independent of the version-pinned plugin cache, so a PATH entry can lag a
+#      version behind but can never dangle when an old cache version is
+#      garbage-collected (~7 days after an update).
+#   3. Points ~/.local/bin/<cmd> at each command's stable copy with a symlink —
+#      created if absent, repaired if it points elsewhere, and left untouched if a
+#      human put a real file there. The module is copied only, never symlinked:
+#      pr-finalize imports it from beside its own copy, so it needs no PATH entry.
 #
 # Output goes to stderr only: the stdout of `claude -p /pr-review:install` is
 # injected into Claude's context, so this keeps it empty. Failures are non-fatal.
@@ -41,6 +43,7 @@ here="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 store="$HOME/.local/share/pr-review/bin"   # stable home for the on-PATH copies
 bindir="$HOME/.local/bin"                   # where the commands must be typeable
 cmds=(pr-review pr-finalize pr-assemble-rules)
+modules=(pr_review_lint.py)   # copied beside the commands, never symlinked — imported, not run
 
 mkdir -p "$store" "$bindir"
 
@@ -69,6 +72,22 @@ for cmd in "${cmds[@]}"; do
     changed=1
   else
     printf 'pr-install: %s exists and is not a symlink — leaving it as is.\n' "$link" >&2
+  fi
+done
+
+# The shared module rides along in the stable dir so pr-finalize can import it
+# from beside its own copy. Copy-only: it is imported, not run, so it needs no
+# PATH symlink and no execute bit.
+for mod in "${modules[@]}"; do
+  src="$here/$mod"
+  dst="$store/$mod"
+
+  [[ -f "$src" ]] \
+    || { printf 'pr-install: %s is missing from the plugin bin (%s) — broken install?\n' "$mod" "$here" >&2; exit 1; }
+
+  if [[ ! -f "$dst" ]] || ! cmp -s "$src" "$dst"; then
+    cp "$src" "$dst"
+    changed=1
   fi
 done
 

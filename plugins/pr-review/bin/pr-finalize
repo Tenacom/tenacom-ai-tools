@@ -81,12 +81,21 @@ Usage:  pr-finalize            post the prepared PR
 from __future__ import annotations
 
 import json
-import re
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 from typing import NoReturn
+
+# The grammar, model and linter live in pr_review_lint.py beside this script.
+# resolve() follows the ~/.local/bin symlink pr-install creates back to the
+# real bin dir, where pr-install copies the module alongside this file, so the
+# import works whether pr-finalize runs in place or through that symlink.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from pr_review_lint import (  # noqa: E402
+    Problem, Section, parse_review, parse_diff_ranges, lint, bail_on_problems,
+    PROSE_LINK, TEXT_END_L,
+)
 
 PROG = "pr-finalize"
 STATE_DIR = Path(".pr-review")
@@ -96,62 +105,9 @@ POSTED_MD = RUN_DIR / "posted.md"
 POSTED_JSON = RUN_DIR / "posted.json"
 PENDING_IMPORT = RUN_DIR / "pending-import.json"
 
-HEADING = re.compile(r"^#{1,6}\s")
-LINK = re.compile(r"\]\(\./([^)#]+)#(\d+)\)")  # target: ](./path#start)
-END_L = re.compile(r"-L(\d+)\]")               # range end in the link TEXT
-CHECKBOX = re.compile(r"^###\s+\[([ xX])\]")
-PROSE_LINK = re.compile(r"\[([^\]]*)\]\(\./([^)]*)\)")  # a [text](./target) link in prose
-BARE_LINE = re.compile(r"\d+\Z")                        # a relative target's fragment
-TEXT_END_L = re.compile(r"-L(\d+)\Z")                   # range end at the tail of link TEXT
-
 
 def die(msg: str) -> NoReturn:
     print(f"{PROG}: {msg}", file=sys.stderr)
-    raise SystemExit(1)
-
-
-# --- problem collection -------------------------------------------------------
-#
-# A malformed REVIEW.md fails as a *batch*, not at the first fault: the parse and
-# routing steps below record each thing they find into a list of Problems instead
-# of dying on the spot, and bail_on_problems() reports the whole list in file
-# order and exits. A curator fixing a curated file sees every misfiled finding,
-# unlabeled section and broken link at once, each as a clickable diagnostic,
-# rather than one re-run per fault.
-
-class Problem:
-    """One fault in REVIEW.md, anchored at a 1-based line and column.
-
-    The anchor lets the batch be sorted into file order and each line clicked in
-    the VS Code terminal (the `REVIEW.md:line:column` shape it linkifies). `msg`
-    is the one-line statement; `hint`, when present, is the longer guidance,
-    printed indented on its own line(s) so it is not read as another location."""
-    __slots__ = ("line", "col", "msg", "hint")
-
-    def __init__(self, line: int, col: int, msg: str, hint: str = "") -> None:
-        self.line = line
-        self.col = col
-        self.msg = msg
-        self.hint = hint
-
-
-def bail_on_problems(problems: list[Problem]) -> None:
-    """Report every collected problem in file order and exit; return if none.
-
-    Each is a `REVIEW.md:line:column: message` diagnostic — the gcc shape the VS
-    Code terminal turns into a clickable link — with any hint indented beneath
-    it, then a one-line summary. This runs before anything is posted or deleted,
-    so exiting here leaves nothing half-done."""
-    if not problems:
-        return
-    problems.sort(key=lambda p: (p.line, p.col))
-    for p in problems:
-        print(f"{REVIEW.name}:{p.line}:{p.col}: {p.msg}", file=sys.stderr)
-        for hint_line in p.hint.splitlines():
-            print(f"    {hint_line}", file=sys.stderr)
-    n = len(problems)
-    print(f"{PROG}: {n} problem{'s' if n != 1 else ''} in {REVIEW.name}"
-          " — nothing posted.", file=sys.stderr)
     raise SystemExit(1)
 
 
@@ -183,158 +139,6 @@ def gh_api_list(path: str, what: str) -> list[dict]:
     return [json.loads(line) for line in out.splitlines() if line.strip()]
 
 
-# --- parsing ------------------------------------------------------------------
-
-class Block:
-    __slots__ = ("checked", "path", "start", "end", "prose",
-                 "head_line", "prose_line", "link_col")
-
-    def __init__(self, checked: bool, path: str | None,
-                 start: int | None, end: int | None, prose: str,
-                 head_line: int, prose_line: int, link_col: int | None) -> None:
-        self.checked = checked
-        self.path = path
-        self.start = start
-        self.end = end
-        self.prose = prose
-        self.head_line = head_line    # 1-based line of the ### heading
-        self.prose_line = prose_line  # 1-based line the (trimmed) prose starts on
-        self.link_col = link_col      # 1-based column of the heading link, if located
-
-    @property
-    def located(self) -> bool:
-        return self.path is not None
-
-
-class Section:
-    __slots__ = ("ordinal", "label", "preamble", "blocks",
-                 "head_line", "preamble_line")
-
-    def __init__(self, ordinal: int, label: str, preamble: str,
-                 blocks: list[Block], head_line: int, preamble_line: int) -> None:
-        self.ordinal = ordinal
-        self.label = label
-        self.preamble = preamble
-        self.blocks = blocks
-        self.head_line = head_line          # 1-based line of the ## heading
-        self.preamble_line = preamble_line  # 1-based line the preamble starts on
-
-
-def _trim(lines: list[str], start: int) -> tuple[str, int]:
-    """Join lines, dropping leading and trailing blank ones.
-
-    `start` is the 1-based REVIEW.md line of lines[0]; the returned int is that
-    line advanced past any dropped leading blanks, so a link's offset in the
-    joined text maps back to its true line number."""
-    i, j = 0, len(lines)
-    while i < j and not lines[i].strip():
-        i += 1
-    while j > i and not lines[j - 1].strip():
-        j -= 1
-    return "\n".join(lines[i:j]), start + i
-
-
-def parse_diff_ranges(diff_text: str) -> dict[str, list[tuple[int, int]]]:
-    """Changed (added-side) line ranges per path, from the canonical diff."""
-    ranges: dict[str, list[tuple[int, int]]] = {}
-    path: str | None = None
-    for line in diff_text.splitlines():
-        if line.startswith("+++ "):
-            p = line[4:].strip()
-            if p.startswith("b/"):
-                p = p[2:]
-            path = None if p == "/dev/null" else p
-        elif line.startswith("@@ ") and path is not None:
-            m = re.search(r"\+(\d+)(?:,(\d+))?", line)
-            if not m:
-                continue
-            start = int(m.group(1))
-            length = int(m.group(2)) if m.group(2) is not None else 1
-            if length > 0:
-                ranges.setdefault(path, []).append((start, start + length - 1))
-    return ranges
-
-
-def in_diff(ranges: dict[str, list[tuple[int, int]]], path: str, line: int) -> bool:
-    return any(lo <= line <= hi for lo, hi in ranges.get(path, ()))
-
-
-def parse_review(text: str, problems: list[Problem]
-                 ) -> tuple[str, int, list[Section]]:
-    """Split REVIEW.md into its body and its ## sections.
-
-    Frontmatter is skipped (the snapshot is the source of truth for pr/head).
-    The body is everything up to the first ## heading. Each section carries its
-    ordinal, its (possibly human-edited) heading text as the label, the preamble
-    between the heading and its first ### block, and its blocks. Returns the body
-    with its 1-based start line (so its links can be reported at the right line),
-    then the sections. Any finding sitting above the first section is recorded
-    into `problems`, one per stray block, rather than raised.
-    """
-    lines = text.splitlines()
-    n = len(lines)
-    i = 0
-
-    if i < n and lines[i].strip() == "---":      # frontmatter
-        i += 1
-        while i < n and lines[i].strip() != "---":
-            i += 1
-        if i < n:
-            i += 1
-
-    body_start = i
-    while i < n and not lines[i].startswith("## "):
-        i += 1
-    body_lines = lines[body_start:i]
-    for k, ln in enumerate(body_lines):
-        if ln.startswith("### "):
-            problems.append(Problem(body_start + k + 1, 1,
-                "a finding (### block) appears before the first section (## heading)",
-                "Every finding must sit under one of the three sections; move it "
-                "under one."))
-    body, body_line = _trim(body_lines, body_start + 1)
-
-    sections: list[Section] = []
-    while i < n and lines[i].startswith("## "):
-        head_line = i + 1
-        label = lines[i][3:].strip()
-        i += 1
-
-        pre_start = i
-        while i < n and not lines[i].startswith(("### ", "## ")):
-            i += 1
-        preamble, preamble_line = _trim(lines[pre_start:i], pre_start + 1)
-
-        blocks: list[Block] = []
-        while i < n and lines[i].startswith("### "):
-            head = lines[i]
-            b_head_line = i + 1
-            i += 1
-            cm = CHECKBOX.match(head)
-            checked = bool(cm and cm.group(1) in ("x", "X"))
-            lm = LINK.search(head)
-            if lm:
-                path: str | None = lm.group(1)
-                start: int | None = int(lm.group(2))
-                em = END_L.search(head)
-                end: int | None = int(em.group(1)) if em else start
-                link_col: int | None = lm.start() + 1
-            else:
-                path = start = end = None
-                link_col = None
-            pr_start = i
-            while i < n and not lines[i].startswith(("## ", "### ")):
-                i += 1
-            prose, prose_line = _trim(lines[pr_start:i], pr_start + 1)
-            blocks.append(Block(checked, path, start, end, prose,
-                                b_head_line, prose_line, link_col))
-
-        sections.append(Section(len(sections) + 1, label, preamble, blocks,
-                                head_line, preamble_line))
-
-    return body, body_line, sections
-
-
 # --- routing and assembly -----------------------------------------------------
 
 def permalink(nwo: str, head: str, path: str,
@@ -350,46 +154,25 @@ def permalink(nwo: str, head: str, path: str,
     return f"{url}#{frag}"
 
 
-def linkify_prose(text: str, nwo: str, head: str,
-                  problems: list[Problem], origin_line: int) -> str:
+def linkify_prose(text: str, nwo: str, head: str) -> str:
     """Rewrite every VS Code-relative code link in prose to a blob permalink.
 
     Code links are authored one way everywhere — ](./path#start), the same
-    grammar a ### heading carries — so a curator (and the model) writes and
-    clicks the same relative form throughout, navigable in the local checkout.
-    But prose and the body post to GitHub verbatim, where a relative link
-    resolves to nothing, so each is converted here at post time; only the
-    posted copy is permalinked, REVIEW.md on disk keeps its relative links.
+    grammar a ### heading carries — navigable in the local checkout; but prose
+    and the body post to GitHub verbatim, where a relative link resolves to
+    nothing, so each is converted here at post time (only the posted copy;
+    REVIEW.md on disk keeps its relative links). The #start fragment is the start
+    line; a trailing -L<end> in the link TEXT extends it to a range, otherwise
+    the permalink is single-line. A fragmentless target names the whole file and
+    yields a fragmentless permalink. Absolute links (a curator-pasted permalink)
+    start with a scheme, not ./, so they pass through untouched.
 
-    The #start fragment, when there is one, is authoritative for the start line;
-    the range end, when the link TEXT ends in -L<end>, extends it — exactly as a
-    heading link's text does, and the sole thing read from the text, so any
-    other text (a human-written phrase) simply yields a single-line permalink
-    at #start. A target with NO fragment names the file as a whole and becomes a
-    fragmentless permalink: only a ### heading's link is a comment anchor and
-    needs a line, while prose is free to point at a file when the file is the
-    referent. What is refused by name is a fragment that is not a bare line —
-    ./path#L52 or ./path#anchor — since that is a broken link, not a whole-file
-    one: GitHub's fragment grammar (or a section anchor) pasted into a relative
-    target lands the local editor at line 1, and dropping it silently would hide
-    the mistake. Absolute links (an already-built permalink a curator pasted)
-    start with a scheme, not ./, so they pass through untouched. Link text is
-    preserved verbatim; only the target moves."""
+    Assumes a lint-clean tree: pr_review_lint.check_fragments has already refused
+    any fragment that is not a bare line, so every #frag reached here is digits."""
     def repl(m: "re.Match[str]") -> str:
         link_text, target = m.group(1), m.group(2)
         if "#" in target:
             path, _, frag = target.rpartition("#")
-            if not BARE_LINE.fullmatch(frag):
-                before = text[:m.start()]
-                line = origin_line + before.count("\n")
-                col = m.start() - (before.rfind("\n") + 1) + 1
-                problems.append(Problem(line, col,
-                    f"a relative code link, [{link_text}](./{target}), has a "
-                    f"fragment (#{frag}) that is not a bare line number",
-                    "#L… is the GitHub fragment form, not the relative one. Point "
-                    "it at a line as ./path#123, or at the whole file as ./path "
-                    "with no fragment at all."))
-                return m.group(0)  # left as-is; the batch bails before it posts
             start: int | None = int(frag)
             em = TEXT_END_L.search(link_text)
             end = int(em.group(1)) if em else start
@@ -399,67 +182,31 @@ def linkify_prose(text: str, nwo: str, head: str,
     return PROSE_LINK.sub(repl, text)
 
 
-def route(sections: list[Section], ranges: dict[str, list[tuple[int, int]]],
-          nwo: str, head: str, problems: list[Problem]
+def route(sections: list[Section], nwo: str, head: str
           ) -> tuple[list[dict], list[tuple[str, str, list[str]]]]:
     """Sort checked findings into inline comments and body-folded groups.
 
+    Assumes a lint-clean tree (pr_review_lint.lint has passed): every inline
+    anchor is in the diff, no checked finding sits past the third section, and
+    every contributing section is labeled — so this only builds, never judges.
     Returns (comments, fold_groups) where a fold group is
-    (label, preamble, [rendered finding text...]) in file order. Faults are
-    recorded into `problems` rather than raised; the caller bails on a non-empty
-    batch before any of this output is used, so a partial payload built past a
-    fault is harmless.
+    (label, preamble, [rendered finding text...]) in file order.
     """
     comments: list[dict] = []
     fold_groups: list[tuple[str, str, list[str]]] = []
 
     for s in sections:
-        # A fourth (or later) section is a grammar violation, but only when it
-        # actually carries something to post; reported once, at its ## heading.
-        if s.ordinal > 3:
-            if any(b.checked for b in s.blocks):
-                problems.append(Problem(s.head_line, 1,
-                    f"a checked finding sits under section #{s.ordinal} "
-                    f"(\u00ab{s.label}\u00bb), but the grammar has exactly three "
-                    "sections",
-                    "The three sections are Problems, Observations, Pre-existing, "
-                    "in that order. Keep all three ## headings, even if empty."))
+        if s.ordinal > 3:  # lint-guaranteed to carry no checked finding
             continue
-
         items: list[str] = []
-        folds_here = False
         for b in s.blocks:
             if not b.checked:
                 continue
-            # Relative code links in the prose become permalinks before it
-            # posts; done here, per checked block, so an unchecked block's bad
-            # link stays inert (it posts nothing) until a curator checks it.
-            prose = linkify_prose(b.prose, nwo, head, problems, b.prose_line)
+            prose = linkify_prose(b.prose, nwo, head)
 
-            # Sections 1 & 2, located: inline, and both endpoints must be in
-            # the diff. GitHub anchors the comment on b.end (with b.start as
-            # start_line for a range) and resolves each endpoint against the
-            # diff, so an end line past the changed hunk 422s the all-or-nothing
-            # post ("Line could not be resolved") even when the start is in.
+            # Sections 1 & 2, located: inline. lint has confirmed both endpoints
+            # are in the diff, so the all-or-nothing post cannot 422 here.
             if b.located and s.ordinal in (1, 2):
-                outside = [n for n in sorted({b.start, b.end})
-                           if not in_diff(ranges, b.path, n)]
-                if outside:
-                    if b.start == b.end:
-                        where = f"line {b.start}, which is"
-                    else:
-                        nums = " and ".join(str(n) for n in outside)
-                        plural = "s" if len(outside) > 1 else ""
-                        verb = "are" if len(outside) > 1 else "is"
-                        where = (f"lines {b.start}-{b.end}, whose line{plural} "
-                                 f"{nums} {verb}")
-                    problems.append(Problem(b.head_line, b.link_col or 1,
-                        f"a checked finding in section \u00ab{s.label}\u00bb points "
-                        f"at {b.path} {where} outside this PR's diff",
-                        "Inline comments must land on changed lines. If it is "
-                        "pre-existing, move it to the third (Pre-existing) section; "
-                        "if its anchor is stale, re-prepare. Then re-run."))
-                    continue
                 comment = {"path": b.path, "body": prose,
                            "line": b.end, "side": "RIGHT"}
                 if b.end > b.start:
@@ -469,7 +216,6 @@ def route(sections: list[Section], ranges: dict[str, list[tuple[int, int]]],
                 continue
 
             # Everything else folds: section 3 (any), sections 1 & 2 locationless.
-            folds_here = True
             if b.located:
                 base = b.path.rsplit("/", 1)[-1]
                 rng = f"L{b.start}" + (f"-L{b.end}" if b.end > b.start else "")
@@ -478,22 +224,10 @@ def route(sections: list[Section], ranges: dict[str, list[tuple[int, int]]],
             else:
                 items.append(prose)
 
-        # A section whose checked findings fold needs a label to fold them under;
-        # reported once, at its ## heading, when something actually folds here.
-        if folds_here and not s.label:
-            problems.append(Problem(s.head_line, 1,
-                f"section #{s.ordinal} has a checked finding to fold but its ## "
-                "heading has no text to use as a label",
-                "Label the heading, then re-run."))
-
         if items:
             # The preamble folds into the body ahead of the group, so its links
-            # convert too (only when the section actually contributes, matching
-            # the posted-strings-only rule the per-block conversion follows).
-            fold_groups.append((s.label,
-                                linkify_prose(s.preamble, nwo, head, problems,
-                                              s.preamble_line),
-                                items))
+            # convert too (only when the section actually contributes).
+            fold_groups.append((s.label, linkify_prose(s.preamble, nwo, head), items))
 
     return comments, fold_groups
 
@@ -737,16 +471,18 @@ def main(argv: list[str]) -> int:
     ranges = parse_diff_ranges(ranges_path.read_text()) if ranges_path.is_file() else {}
 
     # Parse, then lint the whole file into one batch and report it in file order
-    # before building or posting anything. parse_review, linkify_prose (body,
-    # checked blocks, contributing preambles) and route collect problems instead
-    # of dying, so a curator sees every misfiled finding, unlabeled section and
-    # malformed link at once rather than one re-run per fault. This runs after
-    # the live-head check above, so no line number it reports is stale.
+    # before building or posting anything: parse_review and the lint pass in
+    # pr_review_lint collect every fault, so a curator sees every misfiled
+    # finding, unlabeled section and malformed link at once rather than one
+    # re-run per fault. Runs after the live-head check above, so no line number
+    # it reports is stale; routing below may then assume a valid tree.
     problems: list[Problem] = []
     body, body_line, sections = parse_review(REVIEW.read_text(), problems)
-    body = linkify_prose(body, nwo, head, problems, body_line)  # the body always posts
-    comments, fold_groups = route(sections, ranges, nwo, head, problems)
-    bail_on_problems(problems)
+    lint(body, body_line, sections, ranges, problems)
+    bail_on_problems(problems, PROG)
+
+    body = linkify_prose(body, nwo, head)  # lint-clean now: the body always posts
+    comments, fold_groups = route(sections, nwo, head)
 
     body_text = assemble_body(body, fold_groups)
     fold_count = sum(len(items) for _, _, items in fold_groups)
