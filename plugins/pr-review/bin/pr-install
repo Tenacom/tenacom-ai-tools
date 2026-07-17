@@ -35,9 +35,9 @@
 set -euo pipefail
 
 # 1. Self-locate. readlink -f canonicalises through the ~/.local/bin symlink (when
-#    run as a bare command) and through the cache path (when run by the hook via
-#    ${CLAUDE_PLUGIN_ROOT}); BASH_SOURCE[0] is robust where $0 is not. GNU
-#    coreutils — fine on the Ubuntu/WSL target.
+#    run by hand as a bare command) and through the plugin's cache bin dir (when
+#    the install skill runs it in a session); BASH_SOURCE[0] is robust where $0 is
+#    not. GNU coreutils — fine on the Ubuntu/WSL target.
 here="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 
 store="$HOME/.local/share/pr-review/bin"   # stable home for the on-PATH copies
@@ -91,8 +91,8 @@ for mod in "${modules[@]}"; do
   fi
 done
 
-# A status line (stderr): visible to the human on the explicit `claude -p` run,
-# routed to the debug log (not Claude's context) under the hook.
+# A status line (stderr): the human sees the result of the run, while stdout stays
+# empty so nothing is injected into Claude's context (see the header note above).
 if [[ "$changed" -eq 1 ]]; then
   printf 'pr-install: pr-review, pr-finalize and pr-assemble-rules are linked in %s.\n' "$bindir" >&2
 else
