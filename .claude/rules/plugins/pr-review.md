@@ -55,7 +55,7 @@ All component dirs live at the plugin root; only `plugin.json` sits under `.clau
 
 ```text
 plugins/pr-review/
-├── .claude-plugin/plugin.json   # name "pr-review"; version OMITTED (rolling/SHA)
+├── .claude-plugin/plugin.json   # name "pr-review" + semver version (bumping it is the release gate)
 ├── bin/                         # added to the Bash-tool PATH while the plugin is enabled
 │   ├── pr-review                #   prepare + launch (bash) — launcher execs /pr-review:run
 │   ├── pr-finalize              #   post (Python 3, stdlib only)
