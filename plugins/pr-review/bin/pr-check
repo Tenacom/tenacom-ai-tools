@@ -1,0 +1,73 @@
+#!/usr/bin/env python3
+"""pr-check — lint a curated REVIEW.md offline, without posting anything.
+
+A companion to pr-finalize for the curation loop. As you tick checkboxes and edit
+findings, pr-check tells you whether the file is postable yet: it runs the very
+same parse and lint pr-finalize runs — the shared pr_review_lint module — and
+reports every problem in one sorted, clickable sweep, or says the file is clean.
+Because it is the same grammar and the same linter, a file pr-check calls clean is
+a file pr-finalize will accept; the point is to find the misfiled finding, the
+out-of-diff anchor, the broken link now, at the speed of a local command, instead
+of at the end of pr-finalize's live-head check and GitHub round-trip.
+
+It touches nothing but the filesystem: no network, no gh, no git, no writes. It
+reads REVIEW.md and the preparation snapshot's diff (.pr-review/canonical.diff),
+which it needs to tell an in-diff finding from an out-of-diff one — so it must run
+in a prepared repository, from its root, and refuses with a clear message rather
+than guess when the snapshot is absent. It never posts and never curates; it only
+answers "would this post?".
+
+Usage:  pr-check    lint REVIEW.md and report; exit 0 if clean, 1 if not
+"""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+from typing import NoReturn
+
+# The grammar, model and linter live in pr_review_lint.py beside this script;
+# resolve() follows the ~/.local/bin symlink pr-install creates back to the real
+# bin dir, where pr-install copies the module alongside this file (see pr-finalize
+# for the same idiom).
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from pr_review_lint import (  # noqa: E402
+    REVIEW_NAME, parse_review, parse_diff_ranges, lint, bail_on_problems,
+)
+
+PROG = "pr-check"
+STATE_DIR = Path(".pr-review")
+REVIEW = Path(REVIEW_NAME)
+CANON = STATE_DIR / "canonical.diff"
+
+
+def die(msg: str) -> NoReturn:
+    print(f"{PROG}: {msg}", file=sys.stderr)
+    raise SystemExit(1)
+
+
+def main(argv: list[str]) -> int:
+    if argv:
+        die(f"unexpected argument: {argv[0]} (usage: pr-check)")
+
+    if not REVIEW.is_file():
+        die(f"no {REVIEW_NAME} at the repository root — nothing to check. Run "
+            "pr-check from the repo root, after a review has written it.")
+    if not CANON.is_file():
+        die(f"no {CANON} — the preparation snapshot's diff is missing, and "
+            "pr-check needs it to tell in-diff findings from out-of-diff ones. "
+            "Prepare and review first: pr-review <id>.")
+
+    ranges = parse_diff_ranges(CANON.read_text())
+    problems: list = []
+    body, body_line, sections = parse_review(REVIEW.read_text(), problems)
+    lint(body, body_line, sections, ranges, problems)
+    bail_on_problems(problems, PROG)  # prints the batch and exits 1 if any
+
+    print(f"{PROG}: {REVIEW_NAME} is clean — every checked finding is postable.",
+          file=sys.stderr)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))

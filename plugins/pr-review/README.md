@@ -21,6 +21,7 @@ One more property matters when the PR comes from a stranger: the part that reads
 - [Reviewing a PR](#reviewing-a-pr)
   - [Prepare and review](#prepare-and-review)
   - [Curate `REVIEW.md`](#curate-reviewmd)
+  - [Check as you curate](#check-as-you-curate)
   - [Preview, then post](#preview-then-post)
   - [Your own findings: draft them as a pending review](#your-own-findings-draft-them-as-a-pending-review)
   - [Re-runs and re-preparation](#re-runs-and-re-preparation)
@@ -74,7 +75,7 @@ claude -p /pr-review:install
 
 - The first line registers the repository as a Claude Code plugin marketplace; it is a one-time step per machine.
 - The second line installs the plugin and its skills.
-- The third line is a required post-installation step: it creates symlinks in `~/.local/bin` for `pr-review`, `pr-finalize`, and the internal `pr-assemble-rules` helper, backed by copies kept under `~/.local/share/pr-review/bin`. Those copies are independent of the plugin cache, so they do not refresh on their own — run this line again after each plugin update (see [Updating and uninstalling](#updating-and-uninstalling)).
+- The third line is a required post-installation step: it creates symlinks in `~/.local/bin` for `pr-review`, `pr-finalize`, `pr-check`, and the internal `pr-assemble-rules` helper, backed by copies kept under `~/.local/share/pr-review/bin`. Those copies are independent of the plugin cache, so they do not refresh on their own — run this line again after each plugin update (see [Updating and uninstalling](#updating-and-uninstalling)).
 
 > [!TIP]
 >
@@ -179,6 +180,18 @@ Curation itself is a handful of gestures:
 
 The full grammar, with a complete worked example, lives in the `run` skill's [`SKILL.md`](skills/run/SKILL.md); how checked findings turn into an actual GitHub review is the next step.
 
+### Check as you curate
+
+You don't have to try posting to find out whether the file is ready. From the repository root:
+
+```bash
+pr-check    # lint REVIEW.md and report; posts nothing, changes nothing
+```
+
+`pr-check` reads `REVIEW.md` and the prepared diff and reports every problem that would stop the review from posting — a code link with a broken fragment, a finding above the first section or in a spurious fourth one, a checked inline finding whose line falls outside the diff, a checked finding folded under an unlabeled heading — each as a `REVIEW.md:line:column` line you can Ctrl-click in the Visual Studio Code terminal. If nothing is wrong, it says so.
+
+It runs entirely offline — no network, no GitHub, no writes — so it is instant and safe to run as often as you like while you tick boxes and edit. And it shares `pr-finalize`'s parser and linter, so a file `pr-check` calls clean is one `pr-finalize` will accept; it just gives you the answer now rather than at the end of `pr-finalize`'s live-head check and GitHub round-trip.
+
 ### Preview, then post
 
 From the repository root:
@@ -225,7 +238,8 @@ The commands you run yourself, from a repository root:
 
 - **`pr-review`**, a terminal command (self-contained bash). Prepares the PR branch (fetch, snapshot, recreate base, `gh pr checkout`, rebase, confirmed force-push) and, once you press Enter, launches the sandboxed review session.
 - **`pr-finalize`**, a terminal command (self-contained Python 3). Posts the curated `REVIEW.md` to GitHub as one review object.
-- **`install`**, a one-time setup step (`/pr-review:install`) that puts the two commands on your `PATH`. See [Installation](#installation).
+- **`pr-check`**, a terminal command (self-contained Python 3). Lints the curated `REVIEW.md` offline and reports anything that would stop it posting — no network, no GitHub, no changes. See [Check as you curate](#check-as-you-curate).
+- **`install`**, a one-time setup step (`/pr-review:install`) that puts these commands on your `PATH`. See [Installation](#installation).
 
 And the parts `pr-review` drives for you, not meant to be invoked directly:
 
@@ -319,5 +333,6 @@ A file present for a built-in language overrides the built-in, so you can tune t
 
 - **`pr-review <id>`** prepares and reviews, pausing for an Enter before the review session starts; **`pr-review prepare <id>`** prepares only; **`/pr-review:run`** runs the review in an already-prepared session.
 - **`pr-finalize`** posts; **`pr-finalize --dry-run`** previews the payload and posts nothing. A pending GitHub review of yours on the PR is folded into the post (and deleted), after confirmation.
-- **`/pr-review:install`** puts the two commands on your `PATH` (run once, at install).
+- **`pr-check`** lints `REVIEW.md` offline and reports what would block posting, or says it is clean; it changes nothing and needs no network.
+- **`/pr-review:install`** puts these commands on your `PATH` (run once, at install, and again after each plugin update).
 - **The `run` skill's `SKILL.md` is the spec** for the review and for the `REVIEW.md` grammar: the three lexical rules, the `###` heading shape, the checkbox-as-curation primitive, the three sections, the anchor lint, the voice, and the worked example. This README does not restate it.

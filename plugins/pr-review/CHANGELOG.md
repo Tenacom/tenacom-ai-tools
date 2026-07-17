@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### New features
 
+- **`pr-check` lints your curated `REVIEW.md` offline, before you post.**
+  Run `pr-check` from the repository root while curating: it reports every problem that would keep the review from posting — in the same clickable `REVIEW.md:line:column` format `pr-finalize` uses — or tells you the file is clean.
+  It touches only the filesystem (no network, no GitHub), so it answers instantly, and because it shares `pr-finalize`'s parser and linter, a file it calls clean is one `pr-finalize` will accept.
+
 ### Changes to existing features
 
 - **`pr-finalize` now reports every problem in `REVIEW.md` at once, instead of stopping at the first.**

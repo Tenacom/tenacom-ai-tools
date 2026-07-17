@@ -25,10 +25,10 @@ Claude Code plugin named `pr-review`, installed from a private marketplace.
 
 ## Canonical names — do not drift
 
-One scheme. Both end-user commands are `pr-<verb>`. The command `pr-review` deliberately
+One scheme. The three end-user commands are `pr-<verb>`. The command `pr-review` deliberately
 equals the plugin name and the skill namespace stem; these are separate namespaces (a PATH
 executable, a plugin id, a skill prefix) so there is no collision, and the entry-point
-command sharing the plugin name is a coherence win. `pr-assemble-rules` is a third `pr-<verb>`
+command sharing the plugin name is a coherence win. `pr-assemble-rules` is a fourth `pr-<verb>`
 binary but **not** an end-user command — it is an internal prep helper `pr-review` calls (see
 Base-sourced rule set); it shares the naming and the PATH shim, nothing more.
 
@@ -36,6 +36,7 @@ Base-sourced rule set); it shares the naming and the PATH shim, nothing more.
 | --------------------------- | --------------------- |
 | Prepare/launch command      | `pr-review`           |
 | Post command                | `pr-finalize`         |
+| Check command (offline lint)| `pr-check`            |
 | Rule-set helper (internal)  | `pr-assemble-rules`   |
 | Review skill invocation     | `/pr-review:run`      |
 | Review skill `name:` / dir  | `run` / `skills/run/` |
@@ -59,6 +60,7 @@ plugins/pr-review/
 ├── bin/                         # added to the Bash-tool PATH while the plugin is enabled
 │   ├── pr-review                #   prepare + launch (bash) — launcher execs /pr-review:run
 │   ├── pr-finalize              #   post (Python 3, stdlib only)
+│   ├── pr-check                 #   offline REVIEW.md lint (Python 3, stdlib only)
 │   ├── pr-assemble-rules        #   base-sourced rule set (Python 3, stdlib only) — prep helper
 │   ├── pr-install               #   PATH bootstrap (bash, self-locating)
 │   └── pr_review_lint.py        #   REVIEW.md grammar/model/linter (Python 3) — imported, not run
@@ -539,6 +541,24 @@ bumped to the precondition-fixed number.
   survive). `pr-review` refuses to relaunch a preparation whose `pr-finalize` already posted
   (the `.pr-review-run/posted.md` marker).
 
+### pr-check (offline lint)
+
+Self-contained Python 3, stdlib only; no arguments. The curator's fast pre-flight during
+curation: it runs the **same** `parse_review` + `lint` from `pr_review_lint` that `pr-finalize`
+runs, and reports the same batch of `REVIEW.md:line:column` diagnostics (or says the file is
+clean) — exit 1 vs 0. So a file `pr-check` calls clean is one `pr-finalize` will accept; the
+shared module is the whole point, and **neither command may fork the grammar**.
+
+- **Filesystem only** — no `gh`, no `git`, no network, no writes. It reads `REVIEW.md` and the
+  snapshot's `.pr-review/canonical.diff`, which it **requires**: without the diff it cannot tell an
+  in-diff finding from an out-of-diff one, so it refuses by name rather than run with empty ranges
+  and false-flag every located finding. It never posts and never curates.
+- This is what `pr-finalize` structurally cannot be — `pr-finalize` must resolve the repo, run the
+  live-head check, and maybe fetch a pending review before it can lint, so its first feedback is a
+  GitHub round-trip away. `pr-check` gives the same verdict at the speed of a local command. The
+  `bail_on_problems` `note` differs only cosmetically: `pr-finalize` appends "nothing posted",
+  `pr-check` has nothing to post so appends nothing.
+
 ## Packaging & deployment invariants
 
 - **Versioned plugin, rolling marketplace.** The plugin carries a semver `version` in its own
@@ -554,9 +574,9 @@ bumped to the precondition-fixed number.
   not the user's interactive shell. `pr-review` must be typeable in a bare shell before any
   session exists, hence the `pr-install` bootstrap.
 - **`pr-install` bootstrap (bash, self-locating).** Self-locates via
-  `readlink -f "${BASH_SOURCE[0]}"`. Keeps **copies** of `pr-review`, `pr-finalize`, and
-  `pr-assemble-rules` under `~/.local/share/pr-review/bin` (refreshed only when `cmp` differs)
-  and symlinks `~/.local/bin/{pr-review,pr-finalize,pr-assemble-rules}` at those copies.
+  `readlink -f "${BASH_SOURCE[0]}"`. Keeps **copies** of `pr-review`, `pr-finalize`, `pr-check`
+  and `pr-assemble-rules` under `~/.local/share/pr-review/bin` (refreshed only when `cmp` differs)
+  and symlinks `~/.local/bin/{pr-review,pr-finalize,pr-check,pr-assemble-rules}` at those copies.
   `pr-assemble-rules` is shimmed only so `pr-review` can find it by bare name during prep — not
   an end-user command. It also copies `pr_review_lint.py` into the same stable dir **without** a
   symlink — `pr-finalize` (and `pr-check`) import it from beside their own copies, so it needs no

@@ -479,7 +479,7 @@ def main(argv: list[str]) -> int:
     problems: list[Problem] = []
     body, body_line, sections = parse_review(REVIEW.read_text(), problems)
     lint(body, body_line, sections, ranges, problems)
-    bail_on_problems(problems, PROG)
+    bail_on_problems(problems, PROG, "nothing posted")
 
     body = linkify_prose(body, nwo, head)  # lint-clean now: the body always posts
     comments, fold_groups = route(sections, nwo, head)
