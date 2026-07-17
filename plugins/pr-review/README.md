@@ -147,6 +147,8 @@ The PR says "Fixes #839", but the detail page still depends on the service that 
 >
 > - Links to single lines must be in the form `./path/to/file#<line>`; link text (in square brackets) can be anything.
 > - Links to line ranges must be in the form `./path/to/file#<start>` and have a `-L<end>` suffix in the link text.
+> - Links to whole files, in the form `./path/to/file` with no `#<line>` at all, are allowed **in prose** — in a finding's text or in the body, not in a `###` heading, whose link is the line the comment posts at.
+> - Anything else after the `#` — `#L52`, a section anchor — is an error: `pr-finalize` refuses to post and tells you which link to fix.
 
 Three layers:
 

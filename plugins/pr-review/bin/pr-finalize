@@ -31,9 +31,10 @@ Code links are authored one way throughout REVIEW.md — the VS Code-relative
 navigable in the local checkout during curation whether it sits in a heading or
 in prose. Prose and the body post to GitHub verbatim, where a relative link is
 dead, so linkify_prose rewrites each to a blob permalink at post time (only the
-posted copy; REVIEW.md on disk stays relative). The #line fragment is
-compulsory: a whole-file relative link cannot become a permalink and is refused
-by name.
+posted copy; REVIEW.md on disk stays relative). In prose the #line fragment is
+optional — a fragmentless ./path names the file and permalinks to it — because
+only a ### heading's link is a comment anchor, and an anchor needs a line. A
+fragment that is not a bare line number (./path#L52) is refused by name.
 
 The review's verdict follows from curation alone: with no checked finding it is
 posted as an APPROVE; with any checked finding — in any of the three sections,
@@ -100,7 +101,7 @@ LINK = re.compile(r"\]\(\./([^)#]+)#(\d+)\)")  # target: ](./path#start)
 END_L = re.compile(r"-L(\d+)\]")               # range end in the link TEXT
 CHECKBOX = re.compile(r"^###\s+\[([ xX])\]")
 PROSE_LINK = re.compile(r"\[([^\]]*)\]\(\./([^)]*)\)")  # a [text](./target) link in prose
-REL_FRAG = re.compile(r"(.+)#(\d+)\Z")                  # relative target -> (path, start)
+BARE_LINE = re.compile(r"\d+\Z")                        # a relative target's fragment
 TEXT_END_L = re.compile(r"-L(\d+)\Z")                   # range end at the tail of link TEXT
 
 
@@ -266,9 +267,17 @@ def parse_review(text: str) -> tuple[str, list[Section]]:
 
 # --- routing and assembly -----------------------------------------------------
 
-def permalink(nwo: str, head: str, path: str, start: int, end: int) -> str:
-    frag = f"L{start}" + (f"-L{end}" if end > start else "")
-    return f"https://github.com/{nwo}/blob/{head}/{path}#{frag}"
+def permalink(nwo: str, head: str, path: str,
+              start: int | None = None, end: int | None = None) -> str:
+    """A blob permalink at the reviewed head, line-pinned when given a start.
+
+    Without a start it names the file as a whole, which GitHub serves fine — the
+    line fragment is only compulsory where a link becomes a comment ANCHOR."""
+    url = f"https://github.com/{nwo}/blob/{head}/{path}"
+    if start is None:
+        return url
+    frag = f"L{start}" + (f"-L{end}" if end and end > start else "")
+    return f"{url}#{frag}"
 
 
 def linkify_prose(text: str, nwo: str, head: str) -> str:
@@ -281,26 +290,35 @@ def linkify_prose(text: str, nwo: str, head: str) -> str:
     resolves to nothing, so each is converted here at post time; only the
     posted copy is permalinked, REVIEW.md on disk keeps its relative links.
 
-    The #start fragment is compulsory and authoritative for the start line; the
-    range end, when the link TEXT ends in -L<end>, extends it — exactly as a
+    The #start fragment, when there is one, is authoritative for the start line;
+    the range end, when the link TEXT ends in -L<end>, extends it — exactly as a
     heading link's text does, and the sole thing read from the text, so any
     other text (a human-written phrase) simply yields a single-line permalink
-    at #start. A ./ link whose target has no bare-digit fragment cannot become
-    a permalink — a whole-file link, or a GitHub-style #L.. pasted into a
-    relative target — and is refused by name. Absolute links (an already-built
-    permalink a curator pasted) start with a scheme, not ./, so they pass
-    through untouched. Link text is preserved verbatim; only the target moves."""
+    at #start. A target with NO fragment names the file as a whole and becomes a
+    fragmentless permalink: only a ### heading's link is a comment anchor and
+    needs a line, while prose is free to point at a file when the file is the
+    referent. What is refused by name is a fragment that is not a bare line —
+    ./path#L52 or ./path#anchor — since that is a broken link, not a whole-file
+    one: GitHub's fragment grammar (or a section anchor) pasted into a relative
+    target lands the local editor at line 1, and dropping it silently would hide
+    the mistake. Absolute links (an already-built permalink a curator pasted)
+    start with a scheme, not ./, so they pass through untouched. Link text is
+    preserved verbatim; only the target moves."""
     def repl(m: "re.Match[str]") -> str:
         link_text, target = m.group(1), m.group(2)
-        fm = REL_FRAG.fullmatch(target)
-        if not fm:
-            die(f"a relative code link, [{link_text}](./{target}), has no bare "
-                "line-number fragment (…#123). A whole-file link cannot become "
-                "a permalink, and #L… is the GitHub fragment form, not the "
-                "relative one. Point it at a line as ./path#123, then re-run.")
-        path, start = fm.group(1), int(fm.group(2))
-        em = TEXT_END_L.search(link_text)
-        end = int(em.group(1)) if em else start
+        if "#" in target:
+            path, _, frag = target.rpartition("#")
+            if not BARE_LINE.fullmatch(frag):
+                die(f"a relative code link, [{link_text}](./{target}), has a "
+                    f"fragment (#{frag}) that is not a bare line number. #L… is "
+                    "the GitHub fragment form, not the relative one. Point it at "
+                    "a line as ./path#123, or at the whole file as ./path with no "
+                    "fragment at all, then re-run.")
+            start: int | None = int(frag)
+            em = TEXT_END_L.search(link_text)
+            end = int(em.group(1)) if em else start
+        else:
+            path, start, end = target, None, None
         return f"[{link_text}]({permalink(nwo, head, path, start, end)})"
     return PROSE_LINK.sub(repl, text)
 

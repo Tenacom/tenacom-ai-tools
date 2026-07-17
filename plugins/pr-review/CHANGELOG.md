@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **All code links in `REVIEW.md` are now written in editor-navigable format.**
   Code links in prose and body can now be Ctrl-clicked in Visual Studio Code to open the link target in the editor.
   `pr-finalize` now rewrites every relative link to a permalink when it posts.
+  A link in prose or body may point at a whole file (`./path/to/file`, no line number). A link in a `###` heading still needs a line, since that is where the comment posts.
 
 ### Bugs fixed in this release
 
