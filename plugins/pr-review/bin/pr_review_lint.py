@@ -49,14 +49,15 @@ class Problem:
         self.hint = hint
 
 
-def bail_on_problems(problems: list[Problem], prog: str) -> None:
+def bail_on_problems(problems: list[Problem], prog: str, note: str = "") -> None:
     """Report every collected problem in file order and exit; return if none.
 
     Each is a `REVIEW.md:line:column: message` diagnostic — the gcc shape the VS
     Code terminal turns into a clickable link — with any hint indented beneath
-    it, then a one-line summary tagged with `prog` (the calling command). The
-    caller runs this before anything is posted or deleted, so exiting here leaves
-    nothing half-done."""
+    it, then a one-line summary tagged with `prog` (the calling command) and, if
+    given, `note` (what the caller did about it — pr-finalize appends "nothing
+    posted", pr-check has nothing to add). The caller runs this before anything is
+    posted or deleted, so exiting here leaves nothing half-done."""
     if not problems:
         return
     problems.sort(key=lambda p: (p.line, p.col))
@@ -65,8 +66,9 @@ def bail_on_problems(problems: list[Problem], prog: str) -> None:
         for hint_line in p.hint.splitlines():
             print(f"    {hint_line}", file=sys.stderr)
     n = len(problems)
-    print(f"{prog}: {n} problem{'s' if n != 1 else ''} in {REVIEW_NAME}"
-          " — nothing posted.", file=sys.stderr)
+    tail = f" — {note}" if note else ""
+    print(f"{prog}: {n} problem{'s' if n != 1 else ''} in {REVIEW_NAME}{tail}",
+          file=sys.stderr)
     raise SystemExit(1)
 
 
