@@ -64,12 +64,11 @@ plugins/pr-review/
 ├── skills/
 │   ├── run/SKILL.md             #   the review — name: run → /pr-review:run; THE SPEC
 │   └── install/SKILL.md         #   /pr-review:install — thin trigger for install-shims
-├── hooks/hooks.json             #   SessionStart → "${CLAUDE_PLUGIN_ROOT}"/bin/install-shims
 └── README.md
 ```
 
 The four `bin/` files must be committed mode `755` (git tracks the bit; some output mounts
-drop it). The docs' "hooks not firing → `chmod +x`" symptom is this.
+drop it). A file that lost the bit fails to run as a bare command; `chmod +x` restores it.
 
 ## Hard contracts — must hold
 
@@ -557,16 +556,18 @@ bumped to the precondition-fixed number.
   and symlinks `~/.local/bin/{pr-review,pr-finalize,pr-assemble-rules}` at those copies.
   `pr-assemble-rules` is shimmed only so `pr-review` can find it by bare name during prep — not
   an end-user command. Idempotent; repairs a wrong/missing link; **never clobbers a non-symlink
-  a human placed** (`[ -L ]` guard); all output to stderr (a `SessionStart` hook's stdout is
+  a human placed** (`[ -L ]` guard); all output to stderr (the stdout of a `claude -p` run is
   injected into the model's context).
 - **Copies, not symlinks-into-cache.** The plugin cache is version-keyed and an orphaned
   version dir is GC'd ~7 days later; a symlink into it would dangle. Our own copies are
   independent of the cache lifecycle, so a PATH entry can lag a version (until a session
   refreshes it) but never dangle.
-- **Two trigger paths, same script.** (1) Explicit at install: `claude -p /pr-review:install`
-  — owns first install, including the cold-shell case. (2) Ongoing: the `SessionStart` hook
-  refreshes every session, so updates self-heal. The sandboxed review session is structurally
-  never the first session, so the hook's run there is a read-only no-op.
+- **One trigger path.** `claude -p /pr-review:install` owns both first install (including the
+  cold-shell case) and every later refresh: the on-PATH copies live outside the version-keyed
+  plugin cache, so after a plugin update the user re-runs it to pick up the new version. A
+  `SessionStart` hook auto-refreshing them was considered but not implemented for overall
+  performance reasons — it would fire on every session start to serve a refresh needed only after
+  an update — so refresh is a manual step.
 - **Install is two pasted lines; marketplace-add is separate.**
   `claude plugin install pr-review@<marketplace>` then `claude -p /pr-review:install`.
   Marketplace registration (`claude plugin marketplace add …`) is delegated to the

@@ -12,9 +12,8 @@
 # it by bare name — `pr-review` is deliberately location-independent — hence it is
 # shimmed alongside the two, not called by path.
 #
-# It is run three ways, all equivalent:
-#   - once at install, explicitly:  claude -p /pr-review:install-shims
-#   - on every session, by the SessionStart hook (refresh after an update)
+# It is run two ways, both equivalent:
+#   - at install, and again after each plugin update:  claude -p /pr-review:install
 #   - by hand, if a link ever breaks: install-shims
 #
 # What it does, idempotently:
@@ -28,8 +27,8 @@
 #      absent, repaired if it points elsewhere, and left untouched if a human
 #      put a real file there.
 #
-# Output goes to stderr only: stdout from a SessionStart hook is injected into
-# Claude's context, so this keeps it empty. Failures are non-fatal to a session.
+# Output goes to stderr only: the stdout of `claude -p /pr-review:install` is
+# injected into Claude's context, so this keeps it empty. Failures are non-fatal.
 
 set -euo pipefail
 

@@ -1,6 +1,6 @@
 ---
 name: install
-description: Put the `pr-review` and `pr-finalize` commands on your PATH after installing this plugin. Run once from a terminal with `claude -p /pr-review:install`; a SessionStart hook keeps the links current thereafter.
+description: Put the `pr-review` and `pr-finalize` commands on your PATH after installing this plugin. Run from a terminal with `claude -p /pr-review:install`, and again after each plugin update to refresh the links.
 allowed-tools: Bash(install-shims), Bash(install-shims:*)
 disable-model-invocation: true
 ---
