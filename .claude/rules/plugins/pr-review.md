@@ -76,6 +76,14 @@ drop it). The docs' "hooks not firing → `chmod +x`" symptom is this.
 ### REVIEW.md
 
 - Three lexical rules. `###` heading = checkbox + run + agent + optional relative link.
+- **Code links are one format everywhere — VS Code-relative `](./path#<line>)`**, in `###`
+  headings and in prose alike, the fragment a **compulsory** bare start line (no whole-file
+  links, no hand-written permalinks). `pr-finalize` (`linkify_prose`) rewrites every prose and
+  body link to a `blob/<head>` permalink at post time and refuses a fragmentless one; the
+  on-disk `REVIEW.md` stays relative, so links are navigable in the local checkout during
+  curation. This retired the old split (relative only in headings, permalinks in prose): two
+  formats keyed on position was an authoring trap, and hand-built permalinks were a silent
+  wrong-SHA surface the tool now owns.
 - The checkbox is the curation primitive: **only checked findings post**. Unwanted posting
   is unreachable by construction.
 - Finding identity = agent + location.
@@ -89,7 +97,7 @@ drop it). The docs' "hooks not firing → `chmod +x`" symptom is this.
 
 A finding states the defect, never the code (`SKILL.md`'s **defect-not-code rule**, in the
 `###` blocks section): what is wrong, what triggers it, the consequence — said plainly in
-a sentence or two, ahead of the fix, with evidence from elsewhere entering as one permalinked
+a sentence or two, ahead of the fix, with evidence from elsewhere entering as one linked
 clause. Three placements are deliberate and must not drift:
 
 - The rule lives in the **block-format rules**, not the Voice section — voice governs
@@ -479,6 +487,16 @@ bumped to the precondition-fixed number.
 - Routing by section ordinal: §1/§2 located → inline (**must** be in-diff or hard-refuse —
   the one thing that would 422 the all-or-nothing post); §1/§2 locationless → fold; §3 → all
   fold, with a `blob/<head>` permalink when located.
+- **`linkify_prose` converts the relative code links** in the body and every posted prose
+  (inline bodies, folded findings) to `blob/<head>` permalinks — the counterpart to the
+  one-format REVIEW.md contract above. Start line from the compulsory `#<digits>` target
+  fragment; range end from a trailing `-L<end>` in the link **text** (else single-line), so
+  any other text is fine and yields a single-line permalink. A `./` link with no bare-digit
+  fragment (whole-file, or a `#L…` pasted into a relative target) **hard-refuses by name**;
+  absolute links (a curator-pasted permalink) pass through untouched. Runs on **posted**
+  strings only, so an unchecked block's bad link stays inert until checked. Stdlib regex, no
+  Markdown-parser dependency: it matches our own closed `[text](./path#line)` grammar, not
+  arbitrary Markdown — a library would break the stdlib-only distribution for no gain.
 - **The curator's own pending GitHub review is a supported input channel**
   (Tenacom/tenacom-ai-tools#9). The "Start a review" flow is the natural place for the
   curator's own findings — saved server-side, UI-anchored — but its existence 422s the

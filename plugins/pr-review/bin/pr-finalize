@@ -26,6 +26,15 @@ that order, and the empty-sections rule keeps the mapping stable:
     under its (verbatim) heading label.
   - section 3: every finding folds, carrying a blob permalink when it is located.
 
+Code links are authored one way throughout REVIEW.md — the VS Code-relative
+](./path#line) grammar a ### heading already uses — so the same link is
+navigable in the local checkout during curation whether it sits in a heading or
+in prose. Prose and the body post to GitHub verbatim, where a relative link is
+dead, so linkify_prose rewrites each to a blob permalink at post time (only the
+posted copy; REVIEW.md on disk stays relative). The #line fragment is
+compulsory: a whole-file relative link cannot become a permalink and is refused
+by name.
+
 The review's verdict follows from curation alone: with no checked finding it is
 posted as an APPROVE; with any checked finding — in any of the three sections,
 since the checkbox (not the section) is the blocking signal — it is a
@@ -90,6 +99,9 @@ HEADING = re.compile(r"^#{1,6}\s")
 LINK = re.compile(r"\]\(\./([^)#]+)#(\d+)\)")  # target: ](./path#start)
 END_L = re.compile(r"-L(\d+)\]")               # range end in the link TEXT
 CHECKBOX = re.compile(r"^###\s+\[([ xX])\]")
+PROSE_LINK = re.compile(r"\[([^\]]*)\]\(\./([^)]*)\)")  # a [text](./target) link in prose
+REL_FRAG = re.compile(r"(.+)#(\d+)\Z")                  # relative target -> (path, start)
+TEXT_END_L = re.compile(r"-L(\d+)\Z")                   # range end at the tail of link TEXT
 
 
 def die(msg: str) -> NoReturn:
@@ -259,6 +271,40 @@ def permalink(nwo: str, head: str, path: str, start: int, end: int) -> str:
     return f"https://github.com/{nwo}/blob/{head}/{path}#{frag}"
 
 
+def linkify_prose(text: str, nwo: str, head: str) -> str:
+    """Rewrite every VS Code-relative code link in prose to a blob permalink.
+
+    Code links are authored one way everywhere — ](./path#start), the same
+    grammar a ### heading carries — so a curator (and the model) writes and
+    clicks the same relative form throughout, navigable in the local checkout.
+    But prose and the body post to GitHub verbatim, where a relative link
+    resolves to nothing, so each is converted here at post time; only the
+    posted copy is permalinked, REVIEW.md on disk keeps its relative links.
+
+    The #start fragment is compulsory and authoritative for the start line; the
+    range end, when the link TEXT ends in -L<end>, extends it — exactly as a
+    heading link's text does, and the sole thing read from the text, so any
+    other text (a human-written phrase) simply yields a single-line permalink
+    at #start. A ./ link whose target has no bare-digit fragment cannot become
+    a permalink — a whole-file link, or a GitHub-style #L.. pasted into a
+    relative target — and is refused by name. Absolute links (an already-built
+    permalink a curator pasted) start with a scheme, not ./, so they pass
+    through untouched. Link text is preserved verbatim; only the target moves."""
+    def repl(m: "re.Match[str]") -> str:
+        link_text, target = m.group(1), m.group(2)
+        fm = REL_FRAG.fullmatch(target)
+        if not fm:
+            die(f"a relative code link, [{link_text}](./{target}), has no bare "
+                "line-number fragment (…#123). A whole-file link cannot become "
+                "a permalink, and #L… is the GitHub fragment form, not the "
+                "relative one. Point it at a line as ./path#123, then re-run.")
+        path, start = fm.group(1), int(fm.group(2))
+        em = TEXT_END_L.search(link_text)
+        end = int(em.group(1)) if em else start
+        return f"[{link_text}]({permalink(nwo, head, path, start, end)})"
+    return PROSE_LINK.sub(repl, text)
+
+
 def route(sections: list[Section], ranges: dict[str, list[tuple[int, int]]],
           nwo: str, head: str) -> tuple[list[dict], list[tuple[str, str, list[str]]]]:
     """Sort checked findings into inline comments and body-folded groups.
@@ -279,6 +325,11 @@ def route(sections: list[Section], ranges: dict[str, list[tuple[int, int]]],
                     f"(\u00ab{s.label}\u00bb). The grammar has exactly three "
                     "sections — Problems, Observations, Pre-existing, in that "
                     "order. Keep all three ## headings, even if empty.")
+
+            # Relative code links in the prose become permalinks before it
+            # posts; done here, per checked block, so an unchecked block's bad
+            # link stays inert (it posts nothing) until a curator checks it.
+            prose = linkify_prose(b.prose, nwo, head)
 
             # Sections 1 & 2, located: inline, and both endpoints must be in
             # the diff. GitHub anchors the comment on b.end (with b.start as
@@ -302,7 +353,7 @@ def route(sections: list[Section], ranges: dict[str, list[tuple[int, int]]],
                         "comments must land on changed lines — if it is pre-existing, "
                         "move it to the third (Pre-existing) section; if its anchor is "
                         "stale, re-prepare. Then re-run.")
-                comment = {"path": b.path, "body": b.prose,
+                comment = {"path": b.path, "body": prose,
                            "line": b.end, "side": "RIGHT"}
                 if b.end > b.start:
                     comment["start_line"] = b.start
@@ -318,12 +369,15 @@ def route(sections: list[Section], ranges: dict[str, list[tuple[int, int]]],
                 base = b.path.rsplit("/", 1)[-1]
                 rng = f"L{b.start}" + (f"-L{b.end}" if b.end > b.start else "")
                 link = permalink(nwo, head, b.path, b.start, b.end)
-                items.append(f"[{base} {rng}]({link})\n\n{b.prose}")
+                items.append(f"[{base} {rng}]({link})\n\n{prose}")
             else:
-                items.append(b.prose)
+                items.append(prose)
 
         if items:
-            fold_groups.append((s.label, s.preamble, items))
+            # The preamble folds into the body ahead of the group, so its links
+            # convert too (only when the section actually contributes, matching
+            # the posted-strings-only rule the per-block conversion follows).
+            fold_groups.append((s.label, linkify_prose(s.preamble, nwo, head), items))
 
     return comments, fold_groups
 
@@ -567,6 +621,7 @@ def main(argv: list[str]) -> int:
     ranges = parse_diff_ranges(ranges_path.read_text()) if ranges_path.is_file() else {}
 
     body, sections = parse_review(REVIEW.read_text())
+    body = linkify_prose(body, nwo, head)  # the body always posts; its links convert too
     comments, fold_groups = route(sections, ranges, nwo, head)
     body_text = assemble_body(body, fold_groups)
     fold_count = sum(len(items) for _, _, items in fold_groups)

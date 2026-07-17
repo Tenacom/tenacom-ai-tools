@@ -122,23 +122,31 @@ The review's whole output is one Markdown file, `REVIEW.md`, at the repository r
 
 ### [ ] 1 1 [app-routing.module.ts L34](./src/app/app-routing.module.ts#34)
 
-The route becomes `user-cms/:id`, so the id now travels in the path — but the
-component still reads it from the query string, so `id` stays `0` and the
-"missing id" guard fires.
+The route becomes `user-cms/:id`, so the id now travels in the path — but the component still reads it from the query string, so `id` stays `0` and the "missing id" guard fires.
 
 Read the path param with `paramMap.get('id')`.
+
+### [ ] 1 2 [task-list.component.ts L49-L55](./src/components/task-list.component.ts#49)
+
+This loop is exactly the same as the one in `_updateData` at [task-list.component.ts L102-L108](./src/components/task-list.component.ts#102) — only two variable names differ.
+
+Extract the loop into a private method and use it at both sites.
 
 ## Observations
 
 ### [ ] 1 5
 
-The PR says "Fixes #839", but the detail page still depends on the service
-that issue wants gone. Unless you're already close on that work, I'd drop the
-"Fixes" and open a follow-up — this PR is coherent as a route move. Bring it
-in here, or split it out?
+The PR says "Fixes #839", but the detail page still depends on the service that issue wants gone. Unless you're already close on that work, I'd drop the "Fixes" and open a follow-up — this PR is coherent as a route move. Bring it in here, or split it out?
 
 ## Pre-existing
 ```
+
+> [!TIP]
+>
+> **Code links** in `REVIEW.md` always have the format shown in the example above. You can also add your own code links: `pr-finalize` will turn them all into permalinks to the PR's HEAD.
+>
+> - Links to single lines must be in the form `./path/to/file#<line>`; link text (in square brackets) can be anything.
+> - Links to line ranges must be in the form `./path/to/file#<start>` and have a `-L<end>` suffix in the link text.
 
 Three layers:
 
@@ -150,13 +158,13 @@ The `###` headings follow a fixed format. Reading the first one above, left to r
 
 ```text
 ### [ ] 1 1 [app-routing.module.ts L34](./src/app/app-routing.module.ts#34)
-     │  │ │ └─ location: file basename + line range, linking to the code
+     │  │ │ └─ location: a code link — file basename + line range as its text
      │  │ └─── agent number: which of the six review lanes found it
      │  └───── run number: which review run produced it
      └──────── the checkbox: your approval, and the only thing that posts
 ```
 
-The run and agent numbers are provenance — together with the location they identify the finding across re-runs; you never edit them. The location link opens the offending line straight from your editor. It is present only when the finding points at a specific place in the code: a cross-cutting finding — like the "Fixes #839" question above — has no single line to point at, so its heading simply ends at the agent number, and when checked it posts into the PR-level comment instead of inline.
+The run and agent numbers are provenance — together with the location they identify the finding across re-runs; you never edit them. The location is present only when the finding points at a specific place in the code: a cross-cutting finding — like the "Fixes #839" question above — has no single line to point at, so its heading simply ends at the agent number, and when checked it posts into the PR-level comment instead of inline.
 
 Curation itself is a handful of gestures:
 
@@ -176,7 +184,18 @@ pr-finalize --dry-run    # parse, route, print the exact payload — posts nothi
 pr-finalize              # post the review, after a recap and a terminal confirmation
 ```
 
-Checked findings under Problems or Observations that sit on changed lines post as inline comments. Everything else is _folded_: merged into the PR-level body under its section label. The verdict follows from your curation: with **no** checked finding it posts an **approval**; with **any** checked finding, in any section, it **requests changes**. The checkbox, not the section, decides. Before prompting, `pr-finalize` prints a per-section recap (checked / unchecked / total), so a half-read `REVIEW.md` is visible; an approval takes a second confirmation. On success it leaves a `posted.md` marker that closes the preparation.
+A checked finding under Problems or Observations posts as an inline comment at its location. GitHub can anchor a comment only on a changed line, so that location must be in the diff. For a range, only the first and last line matter; the lines between them can fall outside. `pr-finalize` checks this before it posts. A location outside the diff is refused up front, and named — otherwise GitHub would reject the whole review.
+
+A checked finding with no location, and every checked finding under Pre-existing, is _folded_ instead: merged into the PR-level body, under its section's label.
+
+The review's verdict follows from your curation:
+
+- If **no** finding is checked and you have no pending review comments (see [Your own findings](#your-own-findings-draft-them-as-a-pending-review) below), `pr-finalize` posts an **approving** review.
+- If **any** finding is checked, _in any section_ (even if only in Pre-existing), or you have at least one pending review comment, `pr-finalize` posts a review **requesting changes**.
+
+Before prompting, `pr-finalize` prints a per-section recap — checked, unchecked, total — so a half-read `REVIEW.md` is visible. An approval takes a second confirmation.
+
+Posting is a one-way step. Once the review is up, `pr-finalize` will not post a second time, and the review will not run again on this preparation. To review the PR afresh, see [Re-runs and re-preparation](#re-runs-and-re-preparation).
 
 ### Your own findings: draft them as a pending review
 
