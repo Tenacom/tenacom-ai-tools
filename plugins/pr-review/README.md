@@ -148,7 +148,9 @@ The PR says "Fixes #839", but the detail page still depends on the service that 
 > - Links to single lines must be in the form `./path/to/file#<line>`; link text (in square brackets) can be anything.
 > - Links to line ranges must be in the form `./path/to/file#<start>` and have a `-L<end>` suffix in the link text.
 > - Links to whole files, in the form `./path/to/file` with no `#<line>` at all, are allowed **in prose** — in a finding's text or in the body, not in a `###` heading, whose link is the line the comment posts at.
-> - Anything else after the `#` — `#L52`, a section anchor — is an error: `pr-finalize` refuses to post and tells you which link to fix.
+> - Anything else after the `#` — `#L52`, a section anchor — is an error: `pr-finalize` refuses to post and names the link to fix.
+>
+> When `REVIEW.md` has more than one problem — a bad link, a finding in the wrong place, an out-of-diff anchor — `pr-finalize` reports them all together, each as a `REVIEW.md:line:column` line you can Ctrl-click in the Visual Studio Code terminal, so you fix them in one pass rather than one re-run at a time.
 
 Three layers:
 
@@ -186,7 +188,7 @@ pr-finalize --dry-run    # parse, route, print the exact payload — posts nothi
 pr-finalize              # post the review, after a recap and a terminal confirmation
 ```
 
-A checked finding under Problems or Observations posts as an inline comment at its location. GitHub can anchor a comment only on a changed line, so that location must be in the diff. For a range, only the first and last line matter; the lines between them can fall outside. `pr-finalize` checks this before it posts. A location outside the diff is refused up front, and named — otherwise GitHub would reject the whole review.
+A checked finding under Problems or Observations posts as an inline comment at its location. GitHub can anchor a comment only on a changed line, so that location must be in the diff. For a range, only the first and last line matter; the lines between them can fall outside. `pr-finalize` checks this before it posts. A location outside the diff is refused up front, and named — otherwise GitHub would reject the whole review — alongside any other problems in `REVIEW.md`, so you see the whole list before posting.
 
 A checked finding with no location, and every checked finding under Pre-existing, is _folded_ instead: merged into the PR-level body, under its section's label.
 
