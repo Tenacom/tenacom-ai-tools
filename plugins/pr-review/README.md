@@ -192,6 +192,36 @@ pr-check    # lint REVIEW.md and report; posts nothing, changes nothing
 
 It runs entirely offline — no network, no GitHub, no writes — so it is instant and safe to run as often as you like while you tick boxes and edit. And it shares `pr-finalize`'s parser and linter, so a file `pr-check` calls clean is one `pr-finalize` will accept; it just gives you the answer now rather than at the end of `pr-finalize`'s live-head check and GitHub round-trip.
 
+**Want the results in the editor's Problems panel?** `pr-check` prints the compiler-style `file:line:column: message` format Visual Studio Code parses natively, so a one-off task turns each problem into a clickable diagnostic — no extension needed. Add this to a `tasks.json` — either the reviewed repo's `.vscode/tasks.json`, or your own user tasks (**Tasks: Open User Tasks**) if you would rather not drop a file into someone else's project:
+
+```json
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "pr-check",
+      "type": "shell",
+      "command": "pr-check",
+      "presentation": { "reveal": "silent", "clear": true },
+      "problemMatcher": {
+        "owner": "pr-check",
+        "fileLocation": ["relative", "${workspaceFolder}"],
+        "severity": "error",
+        "pattern": {
+          "regexp": "^(.+?):(\\d+):(\\d+): (.+)$",
+          "file": 1,
+          "line": 2,
+          "column": 3,
+          "message": 4
+        }
+      }
+    }
+  ]
+}
+```
+
+Run it with **Tasks: Run Task → pr-check** (or bind it to a key). Each run refreshes the Problems panel; the indented hint lines do not match the pattern, so every problem shows as one clickable entry. The task file is yours to place and maintain — the plugin never writes it.
+
 ### Preview, then post
 
 From the repository root:
