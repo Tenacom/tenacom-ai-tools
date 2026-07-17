@@ -74,7 +74,7 @@ claude -p /pr-review:install
 
 - The first line registers the repository as a Claude Code plugin marketplace; it is a one-time step per machine.
 - The second line installs the plugin and its skills.
-- The third line is a required post-installation step: it creates symlinks in `~/.local/bin` for `pr-review`, `pr-finalize`, and the internal `pr-assemble-rules` helper, backed by copies kept under `~/.local/share/pr-review/bin`. A `SessionStart` hook re-runs the same step on later sessions, so the commands stay current after a plugin update; you only run the third line once.
+- The third line is a required post-installation step: it creates symlinks in `~/.local/bin` for `pr-review`, `pr-finalize`, and the internal `pr-assemble-rules` helper, backed by copies kept under `~/.local/share/pr-review/bin`. Those copies are independent of the plugin cache, so they do not refresh on their own — run this line again after each plugin update (see [Updating and uninstalling](#updating-and-uninstalling)).
 
 > [!TIP]
 >
@@ -303,7 +303,7 @@ A file present for a built-in language overrides the built-in, so you can tune t
 
 ## Updating and uninstalling
 
-- **Update the plugin:** `claude plugin update pr-review@tenacom-ai-tools` picks up the latest released version. The next session's `SessionStart` hook refreshes the on-`PATH` copies automatically; if you have not opened a session in a while, run `claude -p /pr-review:install` again to force the refresh.
+- **Update the plugin:** `claude plugin update pr-review@tenacom-ai-tools` picks up the latest released version. Then run `claude -p /pr-review:install` again to refresh the on-`PATH` copies: they live outside the plugin cache and do not update on their own.
 - **Uninstall:** `claude plugin uninstall pr-review@tenacom-ai-tools`, then remove the `PATH` entries and the copies the setup step created:
 
   ```bash

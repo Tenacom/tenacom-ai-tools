@@ -24,6 +24,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Bugs fixed in this release
 
+- **The on-`PATH` commands do not refresh themselves after a plugin update — re-run `claude -p /pr-review:install` to update them.**
+  Earlier documentation described a `SessionStart` hook that refreshed them automatically; it was never implemented. The manual re-run has always been necessary; only the docs were wrong.
+
 - **A multi-line finding with a start or end line outside the diff no longer breaks the review post with a 422.**
   A GitHub inline comment can only anchor where both ends of its range land on changed lines, so such a finding failed the all-or-nothing post with an opaque `422 Unprocessable Entity` ("Line could not be resolved"). The review now keeps both ends of an inline finding's range inside the changed lines as it writes `REVIEW.md`, and `pr-finalize` re-checks both ends before posting — refusing up front and naming the file and the offending line or lines if one slips through, instead of letting the post fail. Trim the finding's range to the changed lines, or move it to the Pre-existing section, and re-run.
 
