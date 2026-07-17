@@ -77,13 +77,20 @@ drop it). The docs' "hooks not firing → `chmod +x`" symptom is this.
 
 - Three lexical rules. `###` heading = checkbox + run + agent + optional relative link.
 - **Code links are one format everywhere — VS Code-relative `](./path#<line>)`**, in `###`
-  headings and in prose alike, the fragment a **compulsory** bare start line (no whole-file
-  links, no hand-written permalinks). `pr-finalize` (`linkify_prose`) rewrites every prose and
-  body link to a `blob/<head>` permalink at post time and refuses a fragmentless one; the
-  on-disk `REVIEW.md` stays relative, so links are navigable in the local checkout during
-  curation. This retired the old split (relative only in headings, permalinks in prose): two
-  formats keyed on position was an authoring trap, and hand-built permalinks were a silent
-  wrong-SHA surface the tool now owns.
+  headings and in prose alike, the fragment a bare start line (no hand-written permalinks).
+  `pr-finalize` (`linkify_prose`) rewrites every prose and body link to a `blob/<head>`
+  permalink at post time; the on-disk `REVIEW.md` stays relative, so links are navigable in the
+  local checkout during curation. This retired the old split (relative only in headings,
+  permalinks in prose): two formats keyed on position was an authoring trap, and hand-built
+  permalinks were a silent wrong-SHA surface the tool now owns.
+- **The line fragment is compulsory only where a link is an anchor** — a `###` heading, whose
+  link is the comment's location. **Prose may link a whole file** (`](./path)`, no fragment):
+  `blob/<sha>/<path>` is a perfectly good permalink, and the earlier blanket refusal wrongly
+  generalised the anchor's needs to every link. `SKILL.md` still bounds it to the case where the
+  file, not a line, is the referent (an added module, a config file), or the model reaches for
+  it whenever finding the line is work. What `linkify_prose` **does** refuse by name is a
+  fragment that is not a bare line (`#L52`, a section anchor) — a broken link rather than a
+  whole-file one, and dropping it silently would hide the mistake.
 - The checkbox is the curation primitive: **only checked findings post**. Unwanted posting
   is unreachable by construction.
 - Finding identity = agent + location.
@@ -489,11 +496,12 @@ bumped to the precondition-fixed number.
   fold, with a `blob/<head>` permalink when located.
 - **`linkify_prose` converts the relative code links** in the body and every posted prose
   (inline bodies, folded findings) to `blob/<head>` permalinks — the counterpart to the
-  one-format REVIEW.md contract above. Start line from the compulsory `#<digits>` target
-  fragment; range end from a trailing `-L<end>` in the link **text** (else single-line), so
-  any other text is fine and yields a single-line permalink. A `./` link with no bare-digit
-  fragment (whole-file, or a `#L…` pasted into a relative target) **hard-refuses by name**;
-  absolute links (a curator-pasted permalink) pass through untouched. Runs on **posted**
+  one-format REVIEW.md contract above. Start line from the `#<digits>` target fragment; range
+  end from a trailing `-L<end>` in the link **text** (else single-line), so any other text is
+  fine and yields a single-line permalink. A fragmentless target yields a fragmentless
+  permalink (the whole-file case); a fragment that is not bare digits (a `#L…` or an anchor
+  pasted into a relative target) **hard-refuses by name**; absolute links (a curator-pasted
+  permalink) pass through untouched. Runs on **posted**
   strings only, so an unchecked block's bad link stays inert until checked. Stdlib regex, no
   Markdown-parser dependency: it matches our own closed `[text](./path#line)` grammar, not
   arbitrary Markdown — a library would break the stdlib-only distribution for no gain.
