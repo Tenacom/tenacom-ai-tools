@@ -592,7 +592,7 @@ bumped to the precondition-fixed number.
 - **Skill self-location.** A skill body has no `__file__`; deriving its own path from the
   version-globbed cache is ambiguous during the 7-day overlap, and `${CLAUDE_PLUGIN_ROOT}` is
   the only token that names the live one. So the bootstrap is a **script** (true self-path via
-  `readlink -f`) launched by hook/skill, not a self-locating skill.
+  `readlink -f`) launched by the install skill, not a self-locating skill.
 - **Bundling rules/instructions in the plugin for end users.** Plugins contribute skills,
   agents, hooks, and MCP — not memory. A plugin cannot ship `CLAUDE.md` or `.claude/rules/`
   that loads for its users. Persistent instruction lives in the skill (`SKILL.md`), and
