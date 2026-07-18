@@ -13,6 +13,6 @@ Run the bundled `pr-install` command exactly once, then report the result. Do no
 pr-install
 ```
 
-It puts the commands on the user's PATH as symlinks in `~/.local/bin`, backed by copies it keeps under `~/.local/share/pr-review/bin`. Three are the end-user commands, `pr-review`, `pr-finalize` and `pr-check`; the fourth, `pr-assemble-rules`, is an internal helper that `pr-review` calls during preparation, linked alongside so `pr-review` can find it. It is idempotent — run after a plugin update it refreshes those copies, and otherwise it does nothing.
+It puts the commands on the user's PATH as symlinks in `~/.local/bin`, backed by copies it keeps under `~/.local/share/pr-review/bin`. Four are the end-user commands, `pr-review`, `pr-finalize`, `pr-check` and `pr-cleanup`; the fifth, `pr-assemble-rules`, is an internal helper that `pr-review` calls during preparation, linked alongside so `pr-review` can find it. It is idempotent — run after a plugin update it refreshes those copies, and otherwise it does nothing.
 
-When it finishes, tell the user whether `pr-review`, `pr-finalize` and `pr-check` are now available (the helper need not be mentioned), and — if `pr-install` printed a note that `~/.local/bin` is not on their PATH — pass that note along verbatim, since they will need to fix their PATH before the commands work in a shell.
+When it finishes, tell the user whether `pr-review`, `pr-finalize`, `pr-check` and `pr-cleanup` are now available (the helper need not be mentioned), and — if `pr-install` printed a note that `~/.local/bin` is not on their PATH — pass that note along verbatim, since they will need to fix their PATH before the commands work in a shell.

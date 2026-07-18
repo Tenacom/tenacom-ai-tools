@@ -1,0 +1,89 @@
+#!/usr/bin/env python3
+"""pr-cleanup — remove a PR review's local artifacts.
+
+The counterpart to the cleanup pr-finalize offers after it posts: run pr-cleanup by
+hand to close out a review whose artifacts you kept for a post-mortem, or to abandon a
+preparation you decided not to post. It deletes the snapshot dir (.pr-review/), the run
+dir (.pr-review-run/), and REVIEW.md, and prunes the three entries pr-review added to
+.git/info/exclude — exactly the inverse of preparation. Idempotent: it removes only
+what is there, and says so when there is nothing to remove.
+
+It asks nothing when the review was already posted — a .pr-review-run/posted.md marker
+proves the artifacts have done their job, and this is the common path, matching the
+silent wipe pr-finalize can do right after posting. But with no posted marker the
+review is either un-posted or mid-curation, and REVIEW.md is git-excluded, so its
+findings are gone for good once removed: there it asks for a y/N confirmation first.
+
+The wipe itself and the terminal prompt both live in pr_review_cleanup.py beside this
+script (shared with pr-finalize).
+
+Usage:  pr-cleanup
+"""
+
+from __future__ import annotations
+
+import subprocess
+import sys
+from pathlib import Path
+from typing import NoReturn
+
+# The wipe and the tty prompt live in pr_review_cleanup.py beside this script;
+# resolve() follows the ~/.local/bin symlink pr-install creates back to the real bin
+# dir, where pr-install copies the module alongside this file (see pr-finalize for the
+# same idiom).
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from pr_review_cleanup import (  # noqa: E402
+    NoTerminal, confirm, plan_cleanup, run_cleanup, review_posted,
+)
+
+PROG = "pr-cleanup"
+
+
+def die(msg: str) -> NoReturn:
+    print(f"{PROG}: {msg}", file=sys.stderr)
+    raise SystemExit(1)
+
+
+def git(*args: str, what: str) -> str:
+    p = subprocess.run(("git", *args), text=True, capture_output=True)
+    if p.returncode != 0:
+        die(f"{what} failed: {p.stderr.strip() or 'git error'}")
+    return p.stdout.strip()
+
+
+def main(argv: list[str]) -> int:
+    if argv:
+        die(f"unexpected argument: {argv[0]} (usage: pr-cleanup)")
+
+    # Repo root: the artifacts live here, and this mirrors pr-finalize/pr-check.
+    top = Path(git("rev-parse", "--show-toplevel", what="locating the repository"))
+    if top.resolve() != Path.cwd().resolve():
+        die(f"run pr-cleanup from the repository root: {top}")
+    git_dir = Path(git("rev-parse", "--absolute-git-dir", what="locating the git dir"))
+
+    planned = plan_cleanup(top, git_dir)
+    if not planned:
+        print(f"{PROG}: nothing to clean — no review artifacts here.", file=sys.stderr)
+        return 0
+
+    listing = ", ".join(planned)
+    # No posted.md: the review was never posted, or is mid-curation. REVIEW.md is
+    # git-excluded, so whatever is unchecked in it is lost for good once removed —
+    # confirm before wiping. A posted review skips this: its artifacts are spent.
+    if not review_posted(top):
+        try:
+            ok = confirm(f"{PROG}: this review has NOT been posted. Remove {listing}? "
+                         "Anything unchecked in REVIEW.md will be lost. [y/N] ")
+        except NoTerminal:
+            die("this review has not been posted; removing it needs an interactive "
+                "terminal to confirm. Run pr-cleanup from a shell.")
+        if not ok:
+            die("declined. Nothing removed.")
+
+    removed = run_cleanup(top, git_dir)
+    print(f"{PROG}: removed {', '.join(removed)}.", file=sys.stderr)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))

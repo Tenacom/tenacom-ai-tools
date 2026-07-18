@@ -25,10 +25,10 @@ Claude Code plugin named `pr-review`, installed from a private marketplace.
 
 ## Canonical names — do not drift
 
-One scheme. The three end-user commands are `pr-<verb>`. The command `pr-review` deliberately
+One scheme. The four end-user commands are `pr-<verb>`. The command `pr-review` deliberately
 equals the plugin name and the skill namespace stem; these are separate namespaces (a PATH
 executable, a plugin id, a skill prefix) so there is no collision, and the entry-point
-command sharing the plugin name is a coherence win. `pr-assemble-rules` is a fourth `pr-<verb>`
+command sharing the plugin name is a coherence win. `pr-assemble-rules` is a fifth `pr-<verb>`
 binary but **not** an end-user command — it is an internal prep helper `pr-review` calls (see
 Base-sourced rule set); it shares the naming and the PATH shim, nothing more.
 
@@ -37,6 +37,7 @@ Base-sourced rule set); it shares the naming and the PATH shim, nothing more.
 | Prepare/launch command      | `pr-review`           |
 | Post command                | `pr-finalize`         |
 | Check command (offline lint)| `pr-check`            |
+| Cleanup command             | `pr-cleanup`          |
 | Rule-set helper (internal)  | `pr-assemble-rules`   |
 | Review skill invocation     | `/pr-review:run`      |
 | Review skill `name:` / dir  | `run` / `skills/run/` |
@@ -46,7 +47,8 @@ Base-sourced rule set); it shares the naming and the PATH shim, nothing more.
 
 `REVIEW.md` is uppercase and is not a `pr-review` token. The `.git/info/exclude` list a
 prepared repo carries is exactly three entries: `.pr-review/`, `.pr-review-run/`,
-`REVIEW.md`. Plugin-delivered skills are invoked `/<plugin>:<name>`, so the review is
+`REVIEW.md` — appended by preparation and pruned by cleanup (`pr-cleanup`, or the offer
+`pr-finalize` makes after a successful post). Plugin-delivered skills are invoked `/<plugin>:<name>`, so the review is
 `/pr-review:run` everywhere — `pr-review`'s launcher and the skill's self-references must
 stay in lockstep (the "worked hand-installed, broke after packaging" trap).
 
@@ -61,19 +63,22 @@ plugins/pr-review/
 │   ├── pr-review                #   prepare + launch (bash) — launcher execs /pr-review:run
 │   ├── pr-finalize              #   post (Python 3, stdlib only)
 │   ├── pr-check                 #   offline REVIEW.md lint (Python 3, stdlib only)
+│   ├── pr-cleanup               #   remove local review artifacts (Python 3, stdlib only)
 │   ├── pr-assemble-rules        #   base-sourced rule set (Python 3, stdlib only) — prep helper
 │   ├── pr-install               #   PATH bootstrap (bash, self-locating)
-│   └── pr_review_lint.py        #   REVIEW.md grammar/model/linter (Python 3) — imported, not run
+│   ├── pr_review_lint.py        #   REVIEW.md grammar/model/linter (Python 3) — imported, not run
+│   └── pr_review_cleanup.py     #   artifact wipe + tty helpers (Python 3) — imported, not run
 ├── skills/
 │   ├── run/SKILL.md             #   the review — name: run → /pr-review:run; THE SPEC
 │   └── install/SKILL.md         #   /pr-review:install — thin trigger for pr-install
 └── README.md
 ```
 
-The four command scripts in `bin/` — `pr-review`, `pr-finalize`, `pr-assemble-rules`, `pr-install`
-— must be committed mode `755` (git tracks the bit; some output mounts drop it). A command that
-lost the bit fails to run as a bare command; `chmod +x` restores it. `pr_review_lint.py` is
-imported, never run, so it stays a normal mode-`644` file — do not mark it executable.
+The command scripts in `bin/` — `pr-review`, `pr-finalize`, `pr-check`, `pr-cleanup`,
+`pr-assemble-rules`, `pr-install` — must be committed mode `755` (git tracks the bit; some
+output mounts drop it). A command that lost the bit fails to run as a bare command; `chmod +x`
+restores it. `pr_review_lint.py` and `pr_review_cleanup.py` are imported, never run, so they
+stay normal mode-`644` files — do not mark them executable.
 
 ## Hard contracts — must hold
 
@@ -551,6 +556,17 @@ bumped to the precondition-fixed number.
 - On success writes `posted.md`/`posted.json`; `REVIEW.md` is kept (unchecked findings
   survive). `pr-review` refuses to relaunch a preparation whose `pr-finalize` already posted
   (the `.pr-review-run/posted.md` marker).
+- **After a successful post, `pr-finalize` offers cleanup** — the shared `pause()` from
+  `pr_review_cleanup` (Enter → wipe, Ctrl-C → keep), then `run_cleanup` from the same module.
+  The wipe removes `.pr-review/`, `.pr-review-run/` (**the `posted.md`/`posted.json` markers
+  included** — a full wipe closes the preparation outright, and there is nothing left to
+  double-post once the artifacts are gone, so losing the guard is consistent, not a regression),
+  `REVIEW.md`, and the three `.git/info/exclude` entries. A **pause, not a confirmation**:
+  posting was the decision, so Enter proceeds and Ctrl-C keeps everything for a post-mortem; no
+  tty ⇒ keep (the safe default before a delete, the opposite of `launch_review`'s proceed-on-no-tty
+  because the action here destroys rather than launches). The "REVIEW.md kept…" tail message now
+  prints only on the keep branch. The wipe itself lives in `pr_review_cleanup` and is shared
+  verbatim with `pr-cleanup` — do not fork it into `pr-finalize`.
 
 ### pr-check (offline lint)
 
@@ -570,6 +586,30 @@ shared module is the whole point, and **neither command may fork the grammar**.
   `bail_on_problems` `note` differs only cosmetically: `pr-finalize` appends "nothing posted",
   `pr-check` has nothing to post so appends nothing.
 
+### pr-cleanup (artifact wipe)
+
+Self-contained Python 3, stdlib only; no arguments; runs from the repo root (like the family).
+It removes a finished review's local artifacts — the exact inverse of what preparation lays
+down: `.pr-review/`, `.pr-review-run/`, `REVIEW.md`, and the three verbatim `.git/info/exclude`
+entries. It is the standalone counterpart to the cleanup `pr-finalize` offers after posting:
+run it by hand to close out a review whose artifacts were kept for a post-mortem, or to abandon
+a preparation that was never posted.
+
+- **The wipe and the tty prompts live in `pr_review_cleanup`** (`run_cleanup`, `plan_cleanup`,
+  `review_posted`, `confirm`, `pause`), imported from beside the script the way `pr-finalize`
+  and `pr-check` import `pr_review_lint` — one home for the mechanics, shared with `pr-finalize`.
+  The module is mode `644`, imported never run; **neither command may fork the wipe**.
+- **Posted ⇒ silent; un-posted ⇒ confirm.** A `.pr-review-run/posted.md` marker proves the
+  artifacts are spent, so a posted review wipes without asking (the common path, matching
+  `pr-finalize`'s Enter-to-wipe offer). With no marker the review is un-posted or mid-curation,
+  and `REVIEW.md` is git-excluded — its unchecked findings are unrecoverable once deleted — so
+  it takes a y/N confirmation first. This is the one asymmetry from `pr-finalize`'s pause, which
+  always runs _after_ a successful post and so never needs the guard.
+- **Idempotent and conservative.** It removes only what is there, and prints "nothing to clean"
+  (exit 0) when the tree is already clean. The exclude prune matches the three lines verbatim, so
+  git's own default comment header and any human-added line survive. No `gh`, no network — only
+  `git` (repo-root + git-dir resolution) and the filesystem.
+
 ## Packaging & deployment invariants
 
 - **Versioned plugin, rolling marketplace.** The plugin carries a semver `version` in its own
@@ -585,13 +625,15 @@ shared module is the whole point, and **neither command may fork the grammar**.
   not the user's interactive shell. `pr-review` must be typeable in a bare shell before any
   session exists, hence the `pr-install` bootstrap.
 - **`pr-install` bootstrap (bash, self-locating).** Self-locates via
-  `readlink -f "${BASH_SOURCE[0]}"`. Keeps **copies** of `pr-review`, `pr-finalize`, `pr-check`
-  and `pr-assemble-rules` under `~/.local/share/pr-review/bin` (refreshed only when `cmp` differs)
-  and symlinks `~/.local/bin/{pr-review,pr-finalize,pr-check,pr-assemble-rules}` at those copies.
-  `pr-assemble-rules` is shimmed only so `pr-review` can find it by bare name during prep — not
-  an end-user command. It also copies `pr_review_lint.py` into the same stable dir **without** a
-  symlink — `pr-finalize` (and `pr-check`) import it from beside their own copies, so it needs no
-  PATH entry and no execute bit. Idempotent; repairs a wrong/missing link; **never clobbers a
+  `readlink -f "${BASH_SOURCE[0]}"`. Keeps **copies** of `pr-review`, `pr-finalize`, `pr-check`,
+  `pr-cleanup` and `pr-assemble-rules` under `~/.local/share/pr-review/bin` (refreshed only when
+  `cmp` differs) and symlinks `~/.local/bin/{pr-review,pr-finalize,pr-check,pr-cleanup,pr-assemble-rules}`
+  at those copies. `pr-assemble-rules` is shimmed only so `pr-review` can find it by bare name
+  during prep — not an end-user command. It also copies `pr_review_lint.py` and
+  `pr_review_cleanup.py` into the same stable dir **without** a symlink — the commands import them
+  from beside their own copies (`pr-finalize`/`pr-check` use the linter; `pr-finalize`/`pr-cleanup`
+  use the cleanup module), so they need no PATH entry and no execute bit. Idempotent; repairs a
+  wrong/missing link; **never clobbers a
   non-symlink a human placed** (`[ -L ]` guard); all output to stderr (the stdout of a `claude -p`
   run is injected into the model's context).
 - **Copies, not symlinks-into-cache.** The plugin cache is version-keyed and an orphaned

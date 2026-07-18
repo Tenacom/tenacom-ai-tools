@@ -15,16 +15,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Run `pr-check` from the repository root while curating: it reports every problem that would keep the review from posting, or tells you the file is clean.
   The format of reported problems is `file:line:column: message`, same as the diagnostic format compilers use (`REVIEW.md:14:33: …`); Visual Studio Code's terminal turns each reported problem into a clickable link.
 
-### Changes to existing features
+- **New `pr-cleanup` command removes a review's local artifacts when you are done with them.**
+  Run `pr-cleanup` from the repository root: it deletes `.pr-review/`, `.pr-review-run/`, and `REVIEW.md`, and prunes the entries `pr-review` added to `.git/info/exclude`.
+  It wipes without asking if the review has been posted, asks first when it has not.
 
-- **`pr-finalize` now reports every problem in `REVIEW.md` at once, instead of stopping at the first.**
-  Problems found in `REVIEW.md` that would prevent posting of the review are now collected, sorted by position, and printed in one pass.
-  Each is printed in the same format `pr-check` uses (see "New features" above), with its guidance on the next indented line.
+### Changes to existing features
 
 - **All code links in `REVIEW.md` are now written in editor-navigable format.**
   Code links in prose and body can now be Ctrl-clicked in Visual Studio Code to open the link target in the editor.
   `pr-finalize` now rewrites every relative link to a permalink when it posts.
   A link in prose or body may point at a whole file (`./path/to/file`, no line number). A link in a `###` heading still needs a line, since that is where the comment posts.
+
+- **`pr-finalize` now reports every problem in `REVIEW.md` at once, instead of stopping at the first.**
+  Problems found in `REVIEW.md` that would prevent posting of the review are now collected, sorted by position, and printed in one pass.
+  Each is printed in the same format `pr-check` uses (see "New features" above), with its guidance on the next indented line.
+
+- **`pr-finalize` now offers to remove the local review artifacts after a successful post.**
+  It pauses once the review is up: press Enter to delete `.pr-review/`, `.pr-review-run/`, and `REVIEW.md` (and their `.git/info/exclude` entries), or Ctrl-C to keep them for a post-mortem.
 
 ### Bugs fixed in this release
 
