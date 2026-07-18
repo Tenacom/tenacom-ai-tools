@@ -14,41 +14,27 @@ silent wipe pr-finalize can do right after posting. But with no posted marker th
 review is either un-posted or mid-curation, and REVIEW.md is git-excluded, so its
 findings are gone for good once removed: there it asks for a y/N confirmation first.
 
-The wipe itself and the terminal prompt both live in pr_review_cleanup.py beside this
-script (shared with pr-finalize).
+The wipe itself lives in pr_review_cleanup.py beside this script (shared with
+pr-finalize); the terminal prompt lives in pr_review_common.py.
 
 Usage:  pr-cleanup
 """
 
 from __future__ import annotations
 
-import subprocess
 import sys
 from pathlib import Path
-from typing import NoReturn
 
-# The wipe and the tty prompt live in pr_review_cleanup.py beside this script;
-# resolve() follows the ~/.local/bin symlink pr-install creates back to the real bin
-# dir, where pr-install copies the module alongside this file (see pr-finalize for the
-# same idiom).
+# The wipe lives in pr_review_cleanup.py beside this script and the tty prompt in
+# pr_review_common.py; resolve() follows the ~/.local/bin symlink pr-install creates
+# back to the real bin dir, where pr-install copies the modules alongside this file
+# (see pr-finalize for the same idiom).
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from pr_review_cleanup import (  # noqa: E402
-    NoTerminal, confirm, plan_cleanup, run_cleanup, review_posted,
-)
+from pr_review_cleanup import plan_cleanup, run_cleanup, review_posted  # noqa: E402
+from pr_review_common import NoTerminal, confirm, die, git, log, set_prog  # noqa: E402
 
 PROG = "pr-cleanup"
-
-
-def die(msg: str) -> NoReturn:
-    print(f"{PROG}: {msg}", file=sys.stderr)
-    raise SystemExit(1)
-
-
-def git(*args: str, what: str) -> str:
-    p = subprocess.run(("git", *args), text=True, capture_output=True)
-    if p.returncode != 0:
-        die(f"{what} failed: {p.stderr.strip() or 'git error'}")
-    return p.stdout.strip()
+set_prog(PROG)
 
 
 def main(argv: list[str]) -> int:
@@ -63,7 +49,7 @@ def main(argv: list[str]) -> int:
 
     planned = plan_cleanup(top, git_dir)
     if not planned:
-        print(f"{PROG}: nothing to clean — no review artifacts here.", file=sys.stderr)
+        log("nothing to clean — no review artifacts here.")
         return 0
 
     listing = ", ".join(planned)
@@ -81,7 +67,7 @@ def main(argv: list[str]) -> int:
             die("declined. Nothing removed.")
 
     removed = run_cleanup(top, git_dir)
-    print(f"{PROG}: removed {', '.join(removed)}.", file=sys.stderr)
+    log(f"removed {', '.join(removed)}.")
     return 0
 
 

@@ -82,66 +82,35 @@ from __future__ import annotations
 
 import json
 import shutil
-import subprocess
 import sys
 from pathlib import Path
-from typing import NoReturn
 
-# The grammar, model and linter live in pr_review_lint.py beside this script.
-# resolve() follows the ~/.local/bin symlink pr-install creates back to the
-# real bin dir, where pr-install copies the module alongside this file, so the
-# import works whether pr-finalize runs in place or through that symlink.
+# The shared modules live beside this script: pr_review_lint (the REVIEW.md
+# grammar, model and linter), pr_review_cleanup (the artifact wipe offered
+# after posting, also used by pr-cleanup), and pr_review_common (logging, tty
+# interaction, process helpers, artifact names). resolve() follows the
+# ~/.local/bin symlink pr-install creates back to the real bin dir, where
+# pr-install copies the modules alongside this file, so the imports work
+# whether pr-finalize runs in place or through that symlink.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pr_review_lint import (  # noqa: E402
     Problem, Section, parse_review, parse_diff_ranges, lint, bail_on_problems,
     PROSE_LINK, TEXT_END_L,
 )
-# The artifact wipe pr-finalize offers after posting, and the shared tty helpers, live
-# in pr_review_cleanup.py beside this script (also used by the pr-cleanup command).
-from pr_review_cleanup import (  # noqa: E402
-    NoTerminal, confirm as _confirm, pause, run_cleanup,
+from pr_review_cleanup import run_cleanup  # noqa: E402
+from pr_review_common import (  # noqa: E402
+    NoTerminal, POSTED_NAME, REVIEW_NAME, RUN_DIR_NAME, STATE_DIR_NAME,
+    confirm as _confirm, die, gh, gh_api_list, git, log, pause, run, set_prog,
 )
 
 PROG = "pr-finalize"
-STATE_DIR = Path(".pr-review")
-RUN_DIR = Path(".pr-review-run")
-REVIEW = Path("REVIEW.md")
-POSTED_MD = RUN_DIR / "posted.md"
+set_prog(PROG)
+STATE_DIR = Path(STATE_DIR_NAME)
+RUN_DIR = Path(RUN_DIR_NAME)
+REVIEW = Path(REVIEW_NAME)
+POSTED_MD = RUN_DIR / POSTED_NAME
 POSTED_JSON = RUN_DIR / "posted.json"
 PENDING_IMPORT = RUN_DIR / "pending-import.json"
-
-
-def die(msg: str) -> NoReturn:
-    print(f"{PROG}: {msg}", file=sys.stderr)
-    raise SystemExit(1)
-
-
-# --- shelling out to git/gh ---------------------------------------------------
-
-def _run(*args: str, stdin: str | None = None) -> subprocess.CompletedProcess:
-    return subprocess.run(args, input=stdin, text=True, capture_output=True)
-
-
-def git(*args: str, what: str) -> str:
-    p = _run("git", *args)
-    if p.returncode != 0:
-        die(f"{what} failed: {p.stderr.strip() or 'git error'}")
-    return p.stdout.strip()
-
-
-def gh(*args: str, what: str, stdin: str | None = None) -> str:
-    p = _run("gh", *args, stdin=stdin)
-    if p.returncode != 0:
-        die(f"{what} failed: {p.stderr.strip() or 'gh error'}")
-    return p.stdout
-
-
-def gh_api_list(path: str, what: str) -> list[dict]:
-    """GET a paginated array endpoint as one list. `--paginate` alone would
-    concatenate the pages' arrays into invalid JSON, so each element is
-    flattened to one raw JSON line instead (gh prints jq string results raw)."""
-    out = gh("api", "--paginate", path, "--jq", ".[] | @json", what=what)
-    return [json.loads(line) for line in out.splitlines() if line.strip()]
 
 
 # --- routing and assembly -----------------------------------------------------
@@ -407,7 +376,7 @@ def main(argv: list[str]) -> int:
             "preparation of the current head.")
 
     # gh signed in (clearer than letting the first API call fail).
-    if _run("gh", "auth", "status").returncode != 0:
+    if run("gh", "auth", "status").returncode != 0:
         die("gh is installed but not signed in. Run 'gh auth login', then try again.")
 
     # Resolve the repo and print the PR's URL first thing — so it can be opened in
@@ -418,7 +387,7 @@ def main(argv: list[str]) -> int:
              what="resolving the repository").strip()
     if not nwo:
         die("gh returned no repository name; is a default repo set?")
-    print(f"{PROG}: PR #{pr_id} — https://github.com/{nwo}/pull/{pr_id}", file=sys.stderr)
+    log(f"PR #{pr_id} — https://github.com/{nwo}/pull/{pr_id}")
 
     # Live head check: the reviewed head must still be the PR head, or every line
     # number and permalink the review wrote points at the wrong code.
@@ -500,10 +469,10 @@ def main(argv: list[str]) -> int:
         print(json.dumps(payload, indent=2, ensure_ascii=False))
         sys.stderr.write(recap)
         if pending is not None:
-            print(f"{PROG}: a pending review of yours exists on PR #{pr_id}; "
-                  "finalizing will fold it in as shown and delete it from GitHub "
-                  f"(fetched copy: {PENDING_IMPORT}).", file=sys.stderr)
-        print(f"{PROG}: dry run — nothing posted.", file=sys.stderr)
+            log(f"a pending review of yours exists on PR #{pr_id}; "
+                "finalizing will fold it in as shown and delete it from GitHub "
+                f"(fetched copy: {PENDING_IMPORT}).")
+        log("dry run — nothing posted.")
         return 0
 
     sys.stderr.write(recap)
@@ -559,9 +528,9 @@ def main(argv: list[str]) -> int:
     recovery = ("" if pending is None else
                 " Your pending review was already deleted from GitHub; its "
                 f"fetched copy survives in {PENDING_IMPORT}.")
-    p = _run("gh", "api", "--method", "POST",
-             f"repos/{nwo}/pulls/{pr_id}/reviews", "--input", "-",
-             stdin=json.dumps(payload))
+    p = run("gh", "api", "--method", "POST",
+            f"repos/{nwo}/pulls/{pr_id}/reviews", "--input", "-",
+            stdin=json.dumps(payload))
     if p.returncode != 0:
         die(f"posting the review failed: {p.stderr.strip() or 'gh error'}."
             f"{recovery}")
@@ -582,19 +551,18 @@ def main(argv: list[str]) -> int:
     try:
         shutil.copyfile(REVIEW, POSTED_MD)
     except OSError as e:
-        print(f"{PROG}: POSTED OK ({review_url}) but could not write the marker "
-              f"{POSTED_MD}: {e}. The review is live; do NOT re-run — create "
-              f"{POSTED_MD} by hand to lock it.", file=sys.stderr)
+        log(f"POSTED OK ({review_url}) but could not write the marker "
+            f"{POSTED_MD}: {e}. The review is live; do NOT re-run — create "
+            f"{POSTED_MD} by hand to lock it.")
         return 1
     try:
         POSTED_JSON.write_text(json.dumps({"payload": payload, "response": response},
                                           ensure_ascii=False, indent=2))
     except OSError as e:
-        print(f"{PROG}: warning — posted.json not written ({e}), but the posted.md "
-              f"marker is set (no double-post risk). Review: {review_url}",
-              file=sys.stderr)
+        log(f"warning — posted.json not written ({e}), but the posted.md "
+            f"marker is set (no double-post risk). Review: {review_url}")
 
-    print(f"{PROG}: posted: {review_url}", file=sys.stderr)
+    log(f"posted: {review_url}")
 
     # The review is live and the markers are written — everything went fine, so offer
     # to wipe the local artifacts (.pr-review/, .pr-review-run/, REVIEW.md, and their
@@ -607,14 +575,13 @@ def main(argv: list[str]) -> int:
         git_dir = Path(git("rev-parse", "--absolute-git-dir",
                            what="locating the git dir"))
         removed = run_cleanup(Path(top), git_dir)
-        print(f"{PROG}: removed {', '.join(removed)}. This preparation is closed; "
-              f"re-prepare (pr-review {pr_id}) to review the current head afresh.",
-              file=sys.stderr)
+        log(f"removed {', '.join(removed)}. This preparation is closed; "
+            f"re-prepare (pr-review {pr_id}) to review the current head afresh.")
     else:
-        print(f"{PROG}: artifacts kept. REVIEW.md stays at the repo root — unchecked "
-              "findings survive for a follow-up, and pr-cleanup removes everything "
-              f"when you are done. This preparation is finalized; re-prepare "
-              f"(pr-review {pr_id}) to start over.", file=sys.stderr)
+        log("artifacts kept. REVIEW.md stays at the repo root — unchecked "
+            "findings survive for a follow-up, and pr-cleanup removes everything "
+            f"when you are done. This preparation is finalized; re-prepare "
+            f"(pr-review {pr_id}) to start over.")
     return 0
 
 

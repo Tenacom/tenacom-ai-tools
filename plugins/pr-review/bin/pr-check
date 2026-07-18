@@ -24,26 +24,25 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import NoReturn
 
-# The grammar, model and linter live in pr_review_lint.py beside this script;
-# resolve() follows the ~/.local/bin symlink pr-install creates back to the real
-# bin dir, where pr-install copies the module alongside this file (see pr-finalize
-# for the same idiom).
+# The grammar, model and linter live in pr_review_lint.py beside this script, and
+# the shared low-level helpers in pr_review_common.py; resolve() follows the
+# ~/.local/bin symlink pr-install creates back to the real bin dir, where
+# pr-install copies the modules alongside this file (see pr-finalize for the same
+# idiom).
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pr_review_lint import (  # noqa: E402
-    REVIEW_NAME, parse_review, parse_diff_ranges, lint, bail_on_problems,
+    parse_review, parse_diff_ranges, lint, bail_on_problems,
+)
+from pr_review_common import (  # noqa: E402
+    REVIEW_NAME, STATE_DIR_NAME, die, log, set_prog,
 )
 
 PROG = "pr-check"
-STATE_DIR = Path(".pr-review")
+set_prog(PROG)
+STATE_DIR = Path(STATE_DIR_NAME)
 REVIEW = Path(REVIEW_NAME)
 CANON = STATE_DIR / "canonical.diff"
-
-
-def die(msg: str) -> NoReturn:
-    print(f"{PROG}: {msg}", file=sys.stderr)
-    raise SystemExit(1)
 
 
 def main(argv: list[str]) -> int:
@@ -64,8 +63,7 @@ def main(argv: list[str]) -> int:
     lint(body, body_line, sections, ranges, problems)
     bail_on_problems(problems, PROG)  # prints the batch and exits 1 if any
 
-    print(f"{PROG}: {REVIEW_NAME} is clean — every checked finding is postable.",
-          file=sys.stderr)
+    log(f"{REVIEW_NAME} is clean — every checked finding is postable.")
     return 0
 
 

@@ -43,7 +43,7 @@ here="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 store="$HOME/.local/share/pr-review/bin"   # stable home for the on-PATH copies
 bindir="$HOME/.local/bin"                   # where the commands must be typeable
 cmds=(pr-review pr-finalize pr-check pr-cleanup pr-assemble-rules)
-modules=(pr_review_lint.py pr_review_cleanup.py)   # copied beside the commands, never symlinked — imported, not run
+modules=(pr_review_lint.py pr_review_cleanup.py pr_review_common.py)   # copied beside the commands, never symlinked — imported, not run
 
 mkdir -p "$store" "$bindir"
 
