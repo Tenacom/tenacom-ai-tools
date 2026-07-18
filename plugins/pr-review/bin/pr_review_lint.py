@@ -88,7 +88,7 @@ class Block:
         self.prose = prose
         self.head_line = head_line    # 1-based line of the ### heading
         self.prose_line = prose_line  # 1-based line the (trimmed) prose starts on
-        self.link_col = link_col      # 1-based column of the heading link, if located
+        self.link_col = link_col      # 1-based column of the heading link's [, if located
 
     @property
     def located(self) -> bool:
@@ -211,7 +211,11 @@ def parse_review(text: str, problems: list[Problem]
                 start: int | None = int(lm.group(2))
                 em = END_L.search(head)
                 end: int | None = int(em.group(1)) if em else start
-                link_col: int | None = lm.start() + 1
+                # Anchor the diagnostic at the [ that opens the link text, not
+                # the ]( where LINK matches — the link text is where the curator
+                # reads and edits the location. (No ] inside link text, so the
+                # last [ before the match opens it.)
+                link_col: int | None = head.rfind("[", 0, lm.start()) + 1
             else:
                 path = start = end = None
                 link_col = None
