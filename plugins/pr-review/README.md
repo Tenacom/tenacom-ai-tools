@@ -264,7 +264,7 @@ A finalized preparation is closed: a second `pr-finalize` refuses, and so does a
 
 ### Cleaning up
 
-A review leaves three things in your working tree: the snapshot directory (`.pr-review/`), the run directory (`.pr-review-run/`), and `REVIEW.md`. Preparation also adds a line for each to `.git/info/exclude`, so they stay out of `git status`. None of the review's artifatcs are committed, and you will usually want them gone once a review is done.
+A review leaves three things in your working tree: the snapshot directory (`.pr-review/`), the run directory (`.pr-review-run/`), and `REVIEW.md`. Preparation also adds a line for each to `.git/info/exclude`, so they stay out of `git status`. None of the review's artifacts are committed, and you will usually want them gone once a review is done.
 
 `pr-finalize` offers to remove them for you: after a successful post it pauses, and pressing Enter deletes all review artifacts and prunes their `.git/info/exclude` entries. Press **Ctrl-C** instead to keep everything for a post-mortem — the post already succeeded, so nothing is lost either way.
 
