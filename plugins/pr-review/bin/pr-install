@@ -10,7 +10,7 @@
 # commands; `pr-assemble-rules` is an internal helper `pr-review` invokes during preparation
 # (it resolves the review's rule set from the base branch). It must be on the same
 # PATH so `pr-review` can find it by bare name — `pr-review` is deliberately
-# location-independent — hence it is shimmed alongside the three, not called by path.
+# location-independent — hence it is shimmed alongside the four, not called by path.
 #
 # It is run two ways, both equivalent:
 #   - at install, and again after each plugin update:  claude -p /pr-review:install
