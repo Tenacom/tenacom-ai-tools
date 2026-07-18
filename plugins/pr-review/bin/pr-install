@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# pr-install — put `pr-review`, `pr-finalize`, `pr-check`, and `pr-assemble-rules` on the PATH.
+# pr-install — put `pr-review`, `pr-finalize`, `pr-check`, `pr-cleanup`, and `pr-assemble-rules` on the PATH.
 #
 # This plugin ships the real scripts in its bin/ directory, which Claude Code adds to
 # the Bash tool's PATH while the plugin is enabled — but NOT to your interactive
 # shell's PATH, and `pr-review` must be typeable in a bare shell before any session
 # exists. This script bridges that gap.
 #
-# `pr-review`, `pr-finalize` and `pr-check` are the three end-user commands;
-# `pr-assemble-rules` is an internal helper `pr-review` invokes during preparation
+# `pr-review`, `pr-finalize`, `pr-check` and `pr-cleanup` are the four end-user
+# commands; `pr-assemble-rules` is an internal helper `pr-review` invokes during preparation
 # (it resolves the review's rule set from the base branch). It must be on the same
 # PATH so `pr-review` can find it by bare name — `pr-review` is deliberately
 # location-independent — hence it is shimmed alongside the three, not called by path.
@@ -18,16 +18,16 @@
 #
 # What it does, idempotently:
 #   1. Self-locates — the live plugin version's bin/ dir, even via a symlink.
-#   2. Copies the three commands, and the shared pr_review_lint.py module they
-#      rely on, into a STABLE dir (~/.local/share/pr-review/bin), refreshing only
+#   2. Copies the commands, and the shared modules they rely on, into a STABLE dir
+#      (~/.local/share/pr-review/bin), refreshing only
 #      when they differ (first run, or after a plugin update). The copies are
 #      independent of the version-pinned plugin cache, so a PATH entry can lag a
 #      version behind but can never dangle when an old cache version is
 #      garbage-collected (~7 days after an update).
 #   3. Points ~/.local/bin/<cmd> at each command's stable copy with a symlink —
 #      created if absent, repaired if it points elsewhere, and left untouched if a
-#      human put a real file there. The module is copied only, never symlinked:
-#      pr-finalize imports it from beside its own copy, so it needs no PATH entry.
+#      human put a real file there. The modules are copied only, never symlinked:
+#      the commands import them from beside their own copies, so they need no PATH entry.
 #
 # Output goes to stderr only: the stdout of `claude -p /pr-review:install` is
 # injected into Claude's context, so this keeps it empty. Failures are non-fatal.
@@ -42,8 +42,8 @@ here="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 
 store="$HOME/.local/share/pr-review/bin"   # stable home for the on-PATH copies
 bindir="$HOME/.local/bin"                   # where the commands must be typeable
-cmds=(pr-review pr-finalize pr-check pr-assemble-rules)
-modules=(pr_review_lint.py)   # copied beside the commands, never symlinked — imported, not run
+cmds=(pr-review pr-finalize pr-check pr-cleanup pr-assemble-rules)
+modules=(pr_review_lint.py pr_review_cleanup.py)   # copied beside the commands, never symlinked — imported, not run
 
 mkdir -p "$store" "$bindir"
 
@@ -75,9 +75,9 @@ for cmd in "${cmds[@]}"; do
   fi
 done
 
-# The shared module rides along in the stable dir so pr-finalize can import it
-# from beside its own copy. Copy-only: it is imported, not run, so it needs no
-# PATH symlink and no execute bit.
+# The shared modules ride along in the stable dir so the commands can import them
+# from beside their own copies. Copy-only: they are imported, not run, so they need
+# no PATH symlink and no execute bit.
 for mod in "${modules[@]}"; do
   src="$here/$mod"
   dst="$store/$mod"
@@ -94,7 +94,7 @@ done
 # A status line (stderr): the human sees the result of the run, while stdout stays
 # empty so nothing is injected into Claude's context (see the header note above).
 if [[ "$changed" -eq 1 ]]; then
-  printf 'pr-install: pr-review, pr-finalize, pr-check and pr-assemble-rules are linked in %s.\n' "$bindir" >&2
+  printf 'pr-install: pr-review, pr-finalize, pr-check, pr-cleanup and pr-assemble-rules are linked in %s.\n' "$bindir" >&2
 else
   printf 'pr-install: already current; nothing to do.\n' >&2
 fi

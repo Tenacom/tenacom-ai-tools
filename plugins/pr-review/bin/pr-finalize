@@ -96,6 +96,11 @@ from pr_review_lint import (  # noqa: E402
     Problem, Section, parse_review, parse_diff_ranges, lint, bail_on_problems,
     PROSE_LINK, TEXT_END_L,
 )
+# The artifact wipe pr-finalize offers after posting, and the shared tty helpers, live
+# in pr_review_cleanup.py beside this script (also used by the pr-cleanup command).
+from pr_review_cleanup import (  # noqa: E402
+    NoTerminal, confirm as _confirm, pause, run_cleanup,
+)
 
 PROG = "pr-finalize"
 STATE_DIR = Path(".pr-review")
@@ -343,32 +348,14 @@ def convert_pending_comments(comments: list[dict], pr_url: str) -> list[dict]:
 # --- the interactive confirmation ---------------------------------------------
 
 def confirm(prompt: str) -> bool:
-    # Prefer the controlling terminal: an irreversible POST should need a real
-    # keystroke, not something a pipe or heredoc (`echo y | pr-finalize`) can
-    # pre-answer. Two one-directional handles, NOT "r+": any read+write mode builds
-    # a BufferedRandom, whose constructor demands a seekable raw stream — and a tty
-    # is not seekable, so "r+" raises io.UnsupportedOperation (a subclass of OSError,
-    # which silently mislabels the failure as "no terminal"; observed on WSL2).
+    """A y/N answer on the controlling terminal (the shared helper), with
+    pr-finalize's own message when there is no terminal to answer from — a POST is
+    irreversible, so it needs a real keystroke a pipe or heredoc cannot pre-answer."""
     try:
-        tty_in = open("/dev/tty", "r")
-        tty_out = open("/dev/tty", "w")
-    except OSError:
-        # No controlling terminal (e.g. launched through a wrapper that dropped it).
-        # Fall back to stdin, but only if it is itself interactive.
-        if not sys.stdin.isatty():
-            die("posting is irreversible and needs an interactive terminal to confirm. "
-                "Run pr-finalize from a shell, or use --dry-run to preview.")
-        sys.stderr.write(prompt)
-        sys.stderr.flush()
-        return sys.stdin.readline().strip()[:1] in ("y", "Y")
-    try:
-        tty_out.write(prompt)
-        tty_out.flush()
-        answer = tty_in.readline().strip()
-    finally:
-        tty_in.close()
-        tty_out.close()
-    return answer[:1] in ("y", "Y")
+        return _confirm(prompt)
+    except NoTerminal:
+        die("posting is irreversible and needs an interactive terminal to confirm. "
+            "Run pr-finalize from a shell, or use --dry-run to preview.")
 
 
 # --- main ---------------------------------------------------------------------
@@ -608,9 +595,26 @@ def main(argv: list[str]) -> int:
               file=sys.stderr)
 
     print(f"{PROG}: posted: {review_url}", file=sys.stderr)
-    print(f"{PROG}: REVIEW.md kept at the repo root — unchecked findings survive for "
-          f"a follow-up. This preparation is finalized; re-prepare (pr-review {pr_id}) "
-          "to start over.", file=sys.stderr)
+
+    # The review is live and the markers are written — everything went fine, so offer
+    # to wipe the local artifacts (.pr-review/, .pr-review-run/, REVIEW.md, and their
+    # .git/info/exclude entries). A pause, not a confirmation: posting was the
+    # decision, so Enter removes them and Ctrl-C keeps them for a post-mortem. A
+    # non-interactive run keeps them too (pause returns False); declining loses nothing.
+    if pause(f"{PROG}: press Enter to remove the review artifacts "
+             "(.pr-review/, .pr-review-run/, REVIEW.md), or Ctrl-C to keep them "
+             "for a post-mortem. "):
+        git_dir = Path(git("rev-parse", "--absolute-git-dir",
+                           what="locating the git dir"))
+        removed = run_cleanup(Path(top), git_dir)
+        print(f"{PROG}: removed {', '.join(removed)}. This preparation is closed; "
+              f"re-prepare (pr-review {pr_id}) to review the current head afresh.",
+              file=sys.stderr)
+    else:
+        print(f"{PROG}: artifacts kept. REVIEW.md stays at the repo root — unchecked "
+              "findings survive for a follow-up, and pr-cleanup removes everything "
+              f"when you are done. This preparation is finalized; re-prepare "
+              f"(pr-review {pr_id}) to start over.", file=sys.stderr)
     return 0
 
 

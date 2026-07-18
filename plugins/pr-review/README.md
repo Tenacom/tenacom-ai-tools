@@ -75,7 +75,7 @@ claude -p /pr-review:install
 
 - The first line registers the repository as a Claude Code plugin marketplace; it is a one-time step per machine.
 - The second line installs the plugin and its skills.
-- The third line is a required post-installation step: it creates symlinks in `~/.local/bin` for `pr-review`, `pr-finalize`, `pr-check`, and the internal `pr-assemble-rules` helper, backed by copies kept under `~/.local/share/pr-review/bin`. Those copies are independent of the plugin cache, so they do not refresh on their own — run this line again after each plugin update (see [Updating and uninstalling](#updating-and-uninstalling)).
+- The third line is a required post-installation step: it creates symlinks in `~/.local/bin` for `pr-review`, `pr-finalize`, `pr-check`, `pr-cleanup`, and the internal `pr-assemble-rules` helper, backed by copies kept under `~/.local/share/pr-review/bin`. Those copies are independent of the plugin cache, so they do not refresh on their own — run this line again after each plugin update (see [Updating and uninstalling](#updating-and-uninstalling)).
 
 > [!TIP]
 >
@@ -246,6 +246,8 @@ Before prompting, `pr-finalize` prints a per-section recap — checked, unchecke
 
 Posting is a one-way step. Once the review is up, `pr-finalize` will not post a second time, and the review will not run again on this preparation. To review the PR afresh, see [Re-runs and re-preparation](#re-runs-and-re-preparation).
 
+When the post succeeds, `pr-finalize` pauses before removing the local review artifacts: press Enter to delete them, or Ctrl-C to keep them for a post-mortem (see [Cleaning up](#cleaning-up)).
+
 ### Your own findings: draft them as a pending review
 
 While the review runs — or while curating — you will often spot things yourself, browsing the PR on github.com. Record them with GitHub's own **Start a review** flow: pending comments are saved server-side immediately, anchored to file and line by the UI, and survive a browser restart. Just don't submit the review — `pr-finalize` picks it up.
@@ -259,6 +261,17 @@ Declining the import aborts the post — there is no posting around a pending re
 Within one preparation, re-running the review **stacks onto** `REVIEW.md` rather than overwriting it: findings already present are left untouched (checked or not, however you moved or edited them), and new ones are inserted **unchecked**. Because only checked blocks post, anything the merge gets wrong has no effect until you approve it.
 
 A finalized preparation is closed: a second `pr-finalize` refuses, and so does a re-review. To start over against the current head, **re-prepare**: delete `REVIEW.md` and run `pr-review 142` again. Re-preparation wipes the snapshot, the run directory, and the marker.
+
+### Cleaning up
+
+A review leaves three things in your working tree: the snapshot directory (`.pr-review/`), the run directory (`.pr-review-run/`), and `REVIEW.md`. Preparation also adds a line for each to `.git/info/exclude`, so they stay out of `git status`. None of the review's artifatcs are committed, and you will usually want them gone once a review is done.
+
+`pr-finalize` offers to remove them for you: after a successful post it pauses, and pressing Enter deletes all review artifacts and prunes their `.git/info/exclude` entries. Press **Ctrl-C** instead to keep everything for a post-mortem — the post already succeeded, so nothing is lost either way.
+
+To remove the artifacts at any other time, run `pr-cleanup` from the repository root. It does the same wipe, and:
+
+- If the review was **posted**, it wipes without asking.
+- If it was **not** posted — you abandoned it, or you are still curating — it asks first, so the work that went into a review isn't lost by mistake.
 
 ---
 
@@ -286,7 +299,7 @@ Preparation needs the network and writes to `.git/config`, so it runs **unsandbo
 
 ### Artifacts
 
-All review artifacts (`.pr-review/`, `.pr-review-run/`, and `REVIEW.md`) are hidden from `git status` through `.git/info/exclude`, maintained by the preparation, never through `.gitignore`. They never enter the project's history and never make the next preparation see a dirty tree.
+All review artifacts (`.pr-review/`, `.pr-review-run/`, and `REVIEW.md`) are hidden from `git status` through `.git/info/exclude`, maintained by the preparation, never through `.gitignore`. They never enter the project's history and never make the next preparation see a dirty tree. To remove them once a review is done — including their `.git/info/exclude` entries — see [Cleaning up](#cleaning-up).
 
 ---
 
@@ -353,7 +366,7 @@ A file present for a built-in language overrides the built-in, so you can tune t
 - **Uninstall:** `claude plugin uninstall pr-review@tenacom-ai-tools`, then remove the `PATH` entries and the copies the setup step created:
 
   ```bash
-  rm -f ~/.local/bin/pr-review ~/.local/bin/pr-finalize ~/.local/bin/pr-assemble-rules
+  rm -f ~/.local/bin/pr-review ~/.local/bin/pr-finalize ~/.local/bin/pr-check ~/.local/bin/pr-cleanup ~/.local/bin/pr-assemble-rules
   rm -rf ~/.local/share/pr-review
   ```
 
@@ -364,7 +377,8 @@ A file present for a built-in language overrides the built-in, so you can tune t
 ## Reference
 
 - **`pr-review <id>`** prepares and reviews, pausing for an Enter before the review session starts; **`pr-review prepare <id>`** prepares only; **`/pr-review:run`** runs the review in an already-prepared session.
-- **`pr-finalize`** posts; **`pr-finalize --dry-run`** previews the payload and posts nothing. A pending GitHub review of yours on the PR is folded into the post (and deleted), after confirmation.
+- **`pr-finalize`** posts; **`pr-finalize --dry-run`** previews the payload and posts nothing. A pending GitHub review of yours on the PR is folded into the post (and deleted), after confirmation. On a successful post it pauses to offer removing the local artifacts (Enter to remove, Ctrl-C to keep).
 - **`pr-check`** lints `REVIEW.md` offline and reports what would block posting, or says it is clean; it changes nothing and needs no network.
+- **`pr-cleanup`** removes the local review artifacts (`.pr-review/`, `.pr-review-run/`, `REVIEW.md`, and their `.git/info/exclude` entries); it wipes silently once the review was posted, and asks first otherwise.
 - **`/pr-review:install`** puts these commands on your `PATH` (run once, at install, and again after each plugin update).
 - **The `run` skill's `SKILL.md` is the spec** for the review and for the `REVIEW.md` grammar: the three lexical rules, the `###` heading shape, the checkbox-as-curation primitive, the three sections, the anchor lint, the voice, and the worked example. This README does not restate it.
