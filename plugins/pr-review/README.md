@@ -25,6 +25,7 @@ One more property matters when the PR comes from a stranger: the part that reads
   - [Preview, then post](#preview-then-post)
   - [Your own findings: draft them as a pending review](#your-own-findings-draft-them-as-a-pending-review)
   - [Re-runs and re-preparation](#re-runs-and-re-preparation)
+  - [Cleaning up](#cleaning-up)
 - [How it works](#how-it-works)
   - [The moving parts](#the-moving-parts)
   - [Why the split](#why-the-split)
