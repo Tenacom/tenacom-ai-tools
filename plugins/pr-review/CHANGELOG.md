@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### New features
 
+### Changes to existing features
+
+### Bugs fixed in this release
+
+### Known problems introduced by this release
+
+## [2.3.0](https://github.com/Tenacom/tenacom-ai-tools/releases/tag/pr-review/2.3.0) (2026-07-18)
+
+### New features
+
 - **New `pr-check` command lints your curated `REVIEW.md` offline, before you post.**
   Run `pr-check` from the repository root while curating: it reports every problem that would keep the review from posting, or tells you the file is clean.
   The format of reported problems is `file:line:column: message`, same as the diagnostic format compilers use (`REVIEW.md:14:33: …`); Visual Studio Code's terminal turns each reported problem into a clickable link.
@@ -41,8 +51,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **A multi-line finding with a start or end line outside the diff no longer breaks the review post with a 422.**
   A GitHub inline comment can only anchor where both ends of its range land on changed lines, so such a finding failed the all-or-nothing post with an opaque `422 Unprocessable Entity` ("Line could not be resolved"). The review now keeps both ends of an inline finding's range inside the changed lines as it writes `REVIEW.md`, and `pr-finalize` re-checks both ends before posting — refusing up front and naming the file and the offending line or lines if one slips through, instead of letting the post fail. Trim the finding's range to the changed lines, or move it to the Pre-existing section, and re-run.
-
-### Known problems introduced by this release
 
 ## [2.2.0](https://github.com/Tenacom/tenacom-ai-tools/releases/tag/pr-review/2.2.0) (2026-07-13)
 
