@@ -92,7 +92,8 @@ imported, never run, so it stays a normal mode-`644` file — do not mark it exe
   `blob/<sha>/<path>` is a perfectly good permalink, and the earlier blanket refusal wrongly
   generalised the anchor's needs to every link. `SKILL.md` still bounds it to the case where the
   file, not a line, is the referent (an added module, a config file), or the model reaches for
-  it whenever finding the line is work. What `linkify_prose` **does** refuse by name is a
+  it whenever finding the line is work. What the **lint** (`pr_review_lint.check_fragments`,
+  run from `lint` before `pr-finalize` posts and by `pr-check` offline) refuses by name is a
   fragment that is not a bare line (`#L52`, a section anchor) — a broken link rather than a
   whole-file one, and dropping it silently would hide the mistake.
 - The checkbox is the curation primitive: **only checked findings post**. Unwanted posting
@@ -102,7 +103,8 @@ imported, never run, so it stays a normal mode-`644` file — do not mark it exe
   Observations / Pre-existing — written in the PR's language). A `##` heading's text is the
   verbatim fold label; a section may carry a preamble copied verbatim. A Pre-existing fix reads
   identically to any other fix (no scheduling preamble).
-- Section-dependent anchor lint. One diff parse, two consumers (`pr-review`, `pr-finalize`).
+- Section-dependent anchor lint. One diff parse, three consumers (`pr-review`, `pr-finalize`,
+  `pr-check`).
 
 ### Finding prose — concise by contract
 
@@ -495,6 +497,13 @@ bumped to the precondition-fixed number.
   total) and the pending verdict, so a half-curated `REVIEW.md` (e.g. 0 checked past §1) is
   visible. An `APPROVE` takes a **second** confirmation — an unmodified `REVIEW.md` may be an
   unread one, not a clean one.
+- **Lints before it posts, reporting every fault at once.** `parse_review` + `lint` (from
+  `pr_review_lint`) collect every fault into sorted `Problem`s keyed as `REVIEW.md:line:column:`,
+  and `bail_on_problems` prints the whole batch and exits 1 rather than aborting on the first —
+  the curator fixes the file in one pass, not one round-trip per fault. Nothing posts until the
+  tree is clean, which is what lets `route`/`linkify_prose` below assume a lint-clean tree.
+  `pr-check` runs the identical lint offline (see below), so a clean `pr-check` is a clean
+  `pr-finalize`.
 - Routing by section ordinal: §1/§2 located → inline (**must** be in-diff or hard-refuse —
   the one thing that would 422 the all-or-nothing post); §1/§2 locationless → fold; §3 → all
   fold, with a `blob/<head>` permalink when located.
@@ -503,8 +512,10 @@ bumped to the precondition-fixed number.
   one-format REVIEW.md contract above. Start line from the `#<digits>` target fragment; range
   end from a trailing `-L<end>` in the link **text** (else single-line), so any other text is
   fine and yields a single-line permalink. A fragmentless target yields a fragmentless
-  permalink (the whole-file case); a fragment that is not bare digits (a `#L…` or an anchor
-  pasted into a relative target) **hard-refuses by name**; absolute links (a curator-pasted
+  permalink (the whole-file case). It assumes a lint-clean tree — the lint
+  (`pr_review_lint.check_fragments`) has already **hard-refused by name** any fragment that is
+  not bare digits (a `#L…` or an anchor pasted into a relative target), so every fragment
+  reaching `linkify_prose` is a bare line; absolute links (a curator-pasted
   permalink) pass through untouched. Runs on **posted**
   strings only, so an unchecked block's bad link stays inert until checked. Stdlib regex, no
   Markdown-parser dependency: it matches our own closed `[text](./path#line)` grammar, not
