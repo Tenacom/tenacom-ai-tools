@@ -54,12 +54,18 @@ from __future__ import annotations
 
 import json
 import re
-import subprocess
 import sys
 from pathlib import Path, PurePosixPath
-from typing import NoReturn
+
+# The shared low-level helpers (logging, subprocess plumbing) live in
+# pr_review_common.py beside this script; resolve() follows the ~/.local/bin
+# symlink pr-install creates back to the real bin dir, where pr-install copies
+# the module alongside this file (see pr-finalize for the same idiom).
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from pr_review_common import die, log, run, set_prog  # noqa: E402
 
 PROG = "pr-assemble-rules"
+set_prog(PROG)
 
 # An @import reference: an @ at a line/word boundary followed by a path-like token.
 # We only act on it when the captured path looks like a file (contains a slash or ends
@@ -76,24 +82,11 @@ INLINE_CODE_RE = re.compile(r"(?<!`)(`+)(?!`)(.+?)(?<!`)\1(?!`)")
 MD_SUFFIXES = (".md", ".markdown")
 
 
-def die(msg: str) -> NoReturn:
-    print(f"{PROG}: {msg}", file=sys.stderr)
-    raise SystemExit(1)
-
-
-def log(msg: str) -> None:
-    print(f"{PROG}: {msg}", file=sys.stderr)
-
-
 # --- git ----------------------------------------------------------------------
-
-def _run(*args: str) -> subprocess.CompletedProcess:
-    return subprocess.run(args, capture_output=True)
-
 
 def list_base_files(base: str) -> set[str]:
     """Every path in the base tree, NUL-separated so no path needs unquoting."""
-    p = _run("git", "ls-tree", "-r", "-z", "--name-only", base)
+    p = run("git", "ls-tree", "-r", "-z", "--name-only", base, text=False)
     if p.returncode != 0:
         die(f"could not list the base tree ({base}): "
             f"{p.stderr.decode('utf-8', 'replace').strip() or 'git error'}. "
@@ -104,7 +97,7 @@ def list_base_files(base: str) -> set[str]:
 
 def read_base(base: str, path: str) -> str | None:
     """The text of <path> in the base tree, or None if absent or not valid UTF-8."""
-    p = _run("git", "show", f"{base}:{path}")
+    p = run("git", "show", f"{base}:{path}", text=False)
     if p.returncode != 0:
         return None
     try:
@@ -261,7 +254,8 @@ def main(argv: list[str]) -> int:
     base, changed_path, out = argv
     out_dir = Path(out)
 
-    if _run("git", "rev-parse", "--verify", "--quiet", f"{base}^{{commit}}").returncode != 0:
+    if run("git", "rev-parse", "--verify", "--quiet", f"{base}^{{commit}}",
+           text=False).returncode != 0:
         die(f"'{base}' is not a commit in this repository — cannot source the base "
             "rule set. Re-run pr-review to re-prepare.")
 

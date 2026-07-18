@@ -21,7 +21,7 @@ from __future__ import annotations
 import re
 import sys
 
-REVIEW_NAME = "REVIEW.md"
+from pr_review_common import REVIEW_NAME
 
 LINK = re.compile(r"\]\(\./([^)#]+)#(\d+)\)")  # target: ](./path#start)
 END_L = re.compile(r"-L(\d+)\]")               # range end in the link TEXT
