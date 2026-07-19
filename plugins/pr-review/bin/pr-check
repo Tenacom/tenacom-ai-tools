@@ -31,11 +31,19 @@ from pathlib import Path
 # pr-install copies the modules alongside this file (see pr-finalize for the same
 # idiom).
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from pr_review_lint import (  # noqa: E402
-    Problem, parse_review, parse_diff_ranges, lint, bail_on_problems,
+from pr_review_common import (
+    REVIEW_NAME,
+    STATE_DIR_NAME,
+    die,
+    log,
+    set_prog,
 )
-from pr_review_common import (  # noqa: E402
-    REVIEW_NAME, STATE_DIR_NAME, die, log, set_prog,
+from pr_review_lint import (
+    Problem,
+    bail_on_problems,
+    lint,
+    parse_diff_ranges,
+    parse_review,
 )
 
 PROG = "pr-check"

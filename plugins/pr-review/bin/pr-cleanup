@@ -30,8 +30,8 @@ from pathlib import Path
 # back to the real bin dir, where pr-install copies the modules alongside this file
 # (see pr-finalize for the same idiom).
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from pr_review_cleanup import plan_cleanup, run_cleanup, review_posted  # noqa: E402
-from pr_review_common import NoTerminalError, confirm, die, git, log, set_prog  # noqa: E402
+from pr_review_cleanup import plan_cleanup, review_posted, run_cleanup
+from pr_review_common import NoTerminalError, confirm, die, git, log, set_prog
 
 PROG = "pr-cleanup"
 set_prog(PROG)
