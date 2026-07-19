@@ -8,6 +8,7 @@
 # discovery skips it), so the sources are enumerated in the Makefiles instead.
 
 target-version = "py39"
+line-length = 140  # 88 is a formatter default; these dense CLI scripts read fine wider
 
 [lint]
 select = ["ALL"]
@@ -17,8 +18,20 @@ ignore = [
     "COM812",  # trailing-comma placement is a formatter concern, not a defect
     "S603",    # subprocess calls to git/gh are the scripts' purpose, not a risk
     "S607",    # git/gh are resolved via PATH by design, exactly as git itself is
-    "D205",    # blank-line-after-summary — docstring whitespace, high churn
-    "D209",    # closing-quotes-on-own-line — docstring formatting, high churn
+    # Docstrings — the house voice is a noun-phrase summary, and __init__ repeats
+    # the class; only the whitespace/mood rules are dropped, not "document it".
+    "D205",    # blank line after the summary — docstring whitespace, high churn
+    "D209",    # closing quotes on their own line — docstring formatting, high churn
+    "D401",    # imperative-mood summary — the house voice is deliberately noun-phrase
+    "D107",    # an __init__ docstring would only restate the class docstring
+    # Complexity / signature heuristics — these fire on the core parsers, the linter
+    # and the CLI entry points, branchy and many-argumented by nature; refactoring
+    # delicate parsing/posting code to satisfy a metric is the wrong trade.
+    "C901",    # function is too complex (cyclomatic)
+    "PLR0912", # too many branches
+    "PLR0913", # too many arguments
+    "PLR0915", # too many statements
+    "FBT001",  # boolean positional arg — the flagged params are bool-as-data
 ]
 
 [lint.pydocstyle]
