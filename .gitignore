@@ -18,6 +18,8 @@ CLAUDE.local.md
 
 # Python
 __pycache__/
+.ruff_cache/
+.venv/
 
 # Miscellaneous
 .DS_Store

@@ -1,0 +1,15 @@
+{
+  "include": [
+    "plugins/pr-review/bin"
+  ],
+  "extraPaths": [
+    "plugins/pr-review/bin"
+  ],
+  "pythonVersion": "3.9",
+  "typeCheckingMode": "strict",
+  "reportUnknownVariableType": "none",
+  "reportUnknownMemberType": "none",
+  "reportUnknownArgumentType": "none",
+  "reportUnknownParameterType": "none",
+  "reportUnknownLambdaType": "none"
+}
