@@ -12,6 +12,24 @@ instead, override: `make check RUFF=ruff PYRIGHT=pyright`. The Ruff and Pylance 
 extensions read `ruff.toml` / `pyrightconfig.json` directly, so in-editor diagnostics
 work without the venv.
 
+## CI is where the gate is enforced
+
+`.github/workflows/check-python.yml` runs `make tools` then `make lint` and `make
+typecheck` on every pull request and on every push to `main` or `develop`. It is not
+redundant with a local run: the pins fix _which_ rules exist, not which ones _fire_.
+Ruff's `EXE` family is platform-conditional — "not enforced on Windows or WSL", in ruff's
+own words, since those filesystems carry no meaningful execute bit — so a WSL checkout
+passes `make check` over a shebang'd non-executable file while CI fails it. That is how
+`pr_review_cleanup.py`'s vestigial shebang survived until the workflow landed. A local
+pass is necessary; CI is the authority.
+
+The two tools are separate steps, so a ruff failure does not hide the pyright errors.
+Both annotate the changed lines: ruff through `RUFF_OUTPUT_FORMAT=github` (a ruff
+environment variable, so the Makefile needs no knob), pyright through a committed problem
+matcher at `.github/problem-matchers/pyright.json`, because pyright has no GitHub output
+format of its own. The matcher's pattern tracks pyright's plain output — check it against
+a real run if a pyright bump ever changes that format.
+
 ## The file list is explicit, not discovered
 
 The `pr-*` command scripts are extensionless (they run as bare commands). **Neither ruff
