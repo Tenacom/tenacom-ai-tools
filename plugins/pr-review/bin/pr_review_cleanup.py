@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """pr_review_cleanup — remove a PR review's local artifacts (shared helper).
 
 Imported, never run, by pr-finalize and pr-cleanup — the two commands that wipe a
