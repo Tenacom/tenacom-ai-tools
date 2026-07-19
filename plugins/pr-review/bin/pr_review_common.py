@@ -21,7 +21,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
-from typing import NoReturn
+from typing import Any, NoReturn
 
 # --- canonical artifact names -------------------------------------------------
 
@@ -121,7 +121,7 @@ def pause(prompt: str) -> bool:
 # --- external processes -------------------------------------------------------
 
 def run(*args: str, stdin: str | None = None,
-        text: bool = True) -> subprocess.CompletedProcess:
+        text: bool = True) -> subprocess.CompletedProcess[Any]:
     """subprocess.run with both output streams captured. Text mode by default;
     text=False yields raw bytes for a caller that must police the decoding
     itself (pr-assemble-rules reads git blobs that may not be valid UTF-8)."""
@@ -144,7 +144,7 @@ def gh(*args: str, what: str, stdin: str | None = None) -> str:
     return p.stdout
 
 
-def gh_api_list(path: str, what: str) -> list[dict]:
+def gh_api_list(path: str, what: str) -> list[dict[str, Any]]:
     """GET a paginated array endpoint as one list. `--paginate` alone would
     concatenate the pages' arrays into invalid JSON, so each element is
     flattened to one raw JSON line instead (gh prints jq string results raw)."""
