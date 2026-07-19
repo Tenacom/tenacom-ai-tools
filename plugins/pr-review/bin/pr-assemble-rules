@@ -201,7 +201,7 @@ def frontmatter_paths(text: str) -> list[str] | None:
 
     def unquote(s: str) -> str:
         s = s.strip()
-        if len(s) >= 2 and s[0] == s[-1] and s[0] in ("'", '"'):
+        if len(s) >= 2 and s[0] == s[-1] and s[0] in ("'", '"'):  # noqa: PLR2004
             return s[1:-1]
         return s
 
@@ -241,6 +241,7 @@ def ancestor_claude_mds(changed: list[str]) -> list[str]:
 
 
 def write_file(out_dir: Path, rel: str, content: str) -> None:
+    """Write content to out_dir/rel, creating parent dirs and a trailing newline."""
     dst = out_dir / rel
     dst.parent.mkdir(parents=True, exist_ok=True)
     if not content.endswith("\n"):
@@ -249,7 +250,8 @@ def write_file(out_dir: Path, rel: str, content: str) -> None:
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) != 3:
+    """Assemble the base rule set into the output dir (see the module docstring)."""
+    if len(argv) != 3:  # noqa: PLR2004 — the CLI takes exactly three positional args
         die("usage: pr-assemble-rules <base-sha> <changed-files-path> <out-dir>")
     base, changed_path, out = argv
     out_dir = Path(out)

@@ -46,6 +46,7 @@ CANON = STATE_DIR / "canonical.diff"
 
 
 def main(argv: list[str]) -> int:
+    """Lint REVIEW.md against the snapshot diff; exit 1 if anything would block posting."""
     if argv:
         die(f"unexpected argument: {argv[0]} (usage: pr-check)")
 

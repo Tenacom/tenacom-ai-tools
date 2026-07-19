@@ -31,13 +31,14 @@ from pathlib import Path
 # (see pr-finalize for the same idiom).
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pr_review_cleanup import plan_cleanup, run_cleanup, review_posted  # noqa: E402
-from pr_review_common import NoTerminal, confirm, die, git, log, set_prog  # noqa: E402
+from pr_review_common import NoTerminalError, confirm, die, git, log, set_prog  # noqa: E402
 
 PROG = "pr-cleanup"
 set_prog(PROG)
 
 
 def main(argv: list[str]) -> int:
+    """Plan the wipe, confirm it when the review is unposted, then remove the artifacts."""
     if argv:
         die(f"unexpected argument: {argv[0]} (usage: pr-cleanup)")
 
@@ -60,7 +61,7 @@ def main(argv: list[str]) -> int:
         try:
             ok = confirm(f"{PROG}: this review has NOT been posted. Remove {listing}? "
                          "Anything unchecked in REVIEW.md will be lost. [y/N] ")
-        except NoTerminal:
+        except NoTerminalError:
             die("this review has not been posted; removing it needs an interactive "
                 "terminal to confirm. Run pr-cleanup from a shell.")
         if not ok:

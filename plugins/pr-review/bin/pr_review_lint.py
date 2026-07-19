@@ -30,6 +30,10 @@ PROSE_LINK = re.compile(r"\[([^\]]*)\]\(\./([^)]*)\)")  # a [text](./target) lin
 BARE_LINE = re.compile(r"\d+\Z")                        # a relative target's fragment
 TEXT_END_L = re.compile(r"-L(\d+)\Z")                   # range end at the tail of link TEXT
 
+# The three positional sections REVIEW.md always carries (Problems, Observations,
+# Pre-existing); a checked finding past the third is a grammar violation.
+SECTION_COUNT = 3
+
 
 # --- problems -----------------------------------------------------------------
 
@@ -75,6 +79,8 @@ def bail_on_problems(problems: list[Problem], prog: str, note: str = "") -> None
 # --- model --------------------------------------------------------------------
 
 class Block:
+    """One ### finding: checkbox, optional location, prose, and its source lines."""
+
     __slots__ = ("checked", "path", "start", "end", "prose",
                  "head_line", "prose_line", "link_col")
 
@@ -102,6 +108,8 @@ class Block:
 
 
 class Section:
+    """One ## section: ordinal, label, preamble, and its blocks."""
+
     __slots__ = ("ordinal", "label", "preamble", "blocks",
                  "head_line", "preamble_line")
 
@@ -153,6 +161,7 @@ def parse_diff_ranges(diff_text: str) -> dict[str, list[tuple[int, int]]]:
 
 
 def in_diff(ranges: dict[str, list[tuple[int, int]]], path: str, line: int) -> bool:
+    """Whether line falls within any changed range recorded for path."""
     return any(lo <= line <= hi for lo, hi in ranges.get(path, ()))
 
 
@@ -285,7 +294,7 @@ def lint(body: str, body_line: int, sections: list[Section],
     for s in sections:
         # A fourth (or later) section is a grammar violation, but only when it
         # actually carries something to post; reported once, at its ## heading.
-        if s.ordinal > 3:
+        if s.ordinal > SECTION_COUNT:
             if any(b.checked for b in s.blocks):
                 problems.append(Problem(s.head_line, 1,
                     f"a checked finding sits under section #{s.ordinal} "
