@@ -350,7 +350,8 @@
 
   // Configure file associations to languages (e.g. "*.extension": "html"). These have precedence over the default associations of the languages installed.
   "files.associations": {
-    "*.md": "markdown" // Altrimenti per default è "instructions" e i plugin di markdown non funzionano
+    "*.md": "markdown", // Altrimenti per default è "instructions" e i plugin di markdown non funzionano
+    "**/CODEOWNERS": "ignore" // No extension and '#' comments, so language detection guesses Markdown and markdownlint flags every comment
   },
 
   // The default character set encoding to use when reading and writing files.
