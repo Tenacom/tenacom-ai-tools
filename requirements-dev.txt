@@ -1,0 +1,5 @@
+# Development tooling for `make lint` / `make typecheck`, pinned for reproducibility.
+# A ruff bump can change which rules fire (see ruff.toml's `select = ["ALL"]`), so
+# bump these deliberately, not incidentally. `make tools` installs them into .venv.
+ruff==0.15.22
+pyright==1.1.411
