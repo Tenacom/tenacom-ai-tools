@@ -80,13 +80,14 @@ die() { printf 'pr-review: %s\n' "$*" >&2; exit 1; }
 #     execution by name: that match is unwinnable (python, ruby, make, shebang'd ./vendor/bin/phpunit,
 #     …), so php/node/npm/npx were removed — execution is made harmless by denyWrite above and
 #     discouraged by the SKILL's never-execute rule. The deny list also path-scopes the file-write
-#     tools (Write/Edit/MultiEdit) away from the snapshot (.pr-review) and .git: denyWrite above only
-#     binds Bash's view read-only, but Read/Edit/Write bypass the sandbox and go through permissions, so
-#     without this a prompt-injected agent could still rewrite the diff/rules it is judged against or
-#     plant a git hook. deny beats allow and blocks symlink escapes, so a path name CAN completely deny
-#     these — it fits the same rule as the web/gh denials. The run dir (.pr-review-run) is deliberately
-#     NOT tool-denied: agents deliver their reports by Write-ing into it. These patterns are
-#     project-root-relative (`/.pr-review/**`), resolved against the session cwd — always the repo root.
+#     tools (Edit, which also governs Write and NotebookEdit) away from the snapshot (.pr-review)
+#     and .git: denyWrite above only binds Bash's view read-only, but Read/Edit/Write bypass the sandbox
+#     and go through permissions, so without this a prompt-injected agent could still rewrite the
+#     diff/rules it is judged against or plant a git hook. deny beats allow and blocks symlink escapes,
+#     so a path name CAN completely deny these — it fits the same rule as the web/gh denials. The run dir
+#     (.pr-review-run) is deliberately NOT tool-denied: agents deliver their reports by Write-ing into it.
+#     These patterns are project-root-relative (`/.pr-review/**`), resolved against the session cwd —
+#     always the repo root.
 #   - hooks: a PreToolUse Bash hook that unconditionally allows Bash, working around
 #     anthropics/claude-code#43713 — autoAllowBashIfSandboxed falls back to a permission prompt for any
 #     command the static analyzer cannot parse (shell expansions, substitutions, brace/ANSI-C strings),
@@ -108,8 +109,8 @@ SANDBOX_SETTINGS="$(cat <<'JSON'
     }
   },
   "permissions": {
-    "allow": [ "Read", "Task", "Write", "Edit", "MultiEdit", "Bash(rg:*)", "Bash(grep:*)", "Bash(find:*)", "Bash(ugrep:*)", "Bash(bfs:*)", "Bash(git rev-parse:*)", "Bash(git merge-base:*)" ],
-    "deny": [ "WebFetch", "WebSearch", "Bash(gh:*)", "Write(/.pr-review/**)", "Edit(/.pr-review/**)", "MultiEdit(/.pr-review/**)", "Write(/.git/**)", "Edit(/.git/**)", "MultiEdit(/.git/**)" ]
+    "allow": [ "Read", "Task", "Write", "Edit", "Bash(rg:*)", "Bash(grep:*)", "Bash(find:*)", "Bash(ugrep:*)", "Bash(bfs:*)", "Bash(git rev-parse:*)", "Bash(git merge-base:*)" ],
+    "deny": [ "WebFetch", "WebSearch", "Bash(gh:*)", "Edit(/.pr-review/**)", "Edit(/.git/**)" ]
   },
   "hooks": {
     "PreToolUse": [
