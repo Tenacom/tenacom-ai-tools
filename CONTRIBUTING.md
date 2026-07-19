@@ -33,6 +33,10 @@ That runs `make lint` (ruff) and `make typecheck` (pyright) over every plugin's 
 sources, and both must pass. The tool postures, and the reasoning behind them, are in
 [`.claude/rules/python-tooling.md`](.claude/rules/python-tooling.md).
 
+CI runs the same two commands on every pull request, and on every push to `main` and
+`develop`, so a branch that skips this gate fails there instead. Ruff and pyright are
+version-pinned, so a local pass and a CI pass mean the same thing.
+
 ## How work flows
 
 `main` is the branch the marketplace is served from, so it must stay releasable at all
