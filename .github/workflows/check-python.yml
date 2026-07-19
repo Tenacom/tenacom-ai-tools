@@ -29,14 +29,10 @@ jobs:
           python-version: '3.13'
           cache: pip
           cache-dependency-path: requirements-dev.txt
-      # The `pyright` pinned in requirements-dev.txt is the PyPI wrapper: it downloads the
-      # real pyright npm package on first run. (It does not download a Node runtime too —
-      # the runner image ships one, which the wrapper prefers.)
-      - name: Restore pyright's npm package
-        uses: actions/cache@v6
-        with:
-          path: ~/.cache/pyright-python
-          key: pyright-${{ runner.os }}-${{ hashFiles('requirements-dev.txt') }}
+      # Nothing to cache for pyright: the pinned PyPI wrapper bundles the pyright JS
+      # distribution in its own wheel, and runs it on the Node the runner image ships.
+      # It only downloads an npm package when asked for a version other than the bundled
+      # one, through PYRIGHT_PYTHON_FORCE_VERSION or PYRIGHT_PYTHON_PYLANCE_VERSION.
       - name: Build developer tooling
         run: make tools
       # Both tools run even when the first one fails, so one push reports every problem.
