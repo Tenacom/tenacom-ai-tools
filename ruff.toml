@@ -1,0 +1,25 @@
+# Ruff configuration for the repository's Python sources — currently only the
+# pr-review plugin's bin/ scripts. Every rule is enabled, then pared back below
+# with a reason for each removal, so new ruff rules light up on upgrade rather
+# than staying silently off.
+#
+# The file list is NOT here: the pr-* command scripts are extensionless, and
+# ruff only lints an extensionless file when it is named explicitly (directory
+# discovery skips it), so the sources are enumerated in the Makefiles instead.
+
+target-version = "py39"
+
+[lint]
+select = ["ALL"]
+ignore = [
+    "INP001",  # bin/ is a directory of executables, not an importable package
+    "T201",    # these are CLIs — print / stdout is a deliberate output channel
+    "COM812",  # trailing-comma placement is a formatter concern, not a defect
+    "S603",    # subprocess calls to git/gh are the scripts' purpose, not a risk
+    "S607",    # git/gh are resolved via PATH by design, exactly as git itself is
+    "D205",    # blank-line-after-summary — docstring whitespace, high churn
+    "D209",    # closing-quotes-on-own-line — docstring formatting, high churn
+]
+
+[lint.pydocstyle]
+convention = "pep257"
