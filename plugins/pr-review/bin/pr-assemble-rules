@@ -294,7 +294,7 @@ def main(argv: list[str]) -> int:
             child.unlink() if child.is_file() else child.rmdir()
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    manifest_files: list[dict] = []
+    manifest_files: list[dict[str, object]] = []
     for kind, path in sources:
         if kind == "strings":
             content = read_base(base, path)

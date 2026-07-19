@@ -90,9 +90,15 @@ class Block:
         self.prose_line = prose_line  # 1-based line the (trimmed) prose starts on
         self.link_col = link_col      # 1-based column of the heading link's [, if located
 
-    @property
-    def located(self) -> bool:
-        return self.path is not None
+    def location(self) -> tuple[str, int, int] | None:
+        """The (path, start, end) triple when this finding is located, else None.
+
+        A located finding carries all three (parse_review sets them together from
+        the heading link, or leaves all three None); returning them as a unit lets
+        a caller narrow once instead of re-checking each field against None."""
+        if self.path is None or self.start is None or self.end is None:
+            return None
+        return self.path, self.start, self.end
 
 
 class Section:
@@ -303,21 +309,23 @@ def lint(body: str, body_line: int, sections: list[Section],
             # and resolves each endpoint against the diff, so an end line past
             # the changed hunk 422s the all-or-nothing post ("Line could not be
             # resolved") even when the start is in.
-            if b.located and s.ordinal in (1, 2):
-                outside = [ln for ln in sorted({b.start, b.end})
-                           if not in_diff(ranges, b.path, ln)]
+            loc = b.location()
+            if loc is not None and s.ordinal in (1, 2):
+                path, start, end = loc
+                outside = [ln for ln in sorted({start, end})
+                           if not in_diff(ranges, path, ln)]
                 if outside:
-                    if b.start == b.end:
-                        where = f"line {b.start}, which is"
+                    if start == end:
+                        where = f"line {start}, which is"
                     else:
                         nums = " and ".join(str(ln) for ln in outside)
                         plural = "s" if len(outside) > 1 else ""
                         verb = "are" if len(outside) > 1 else "is"
-                        where = (f"lines {b.start}-{b.end}, whose line{plural} "
+                        where = (f"lines {start}-{end}, whose line{plural} "
                                  f"{nums} {verb}")
                     problems.append(Problem(b.head_line, b.link_col or 1,
                         f"a checked finding in section «{s.label}» points at "
-                        f"{b.path} {where} outside this PR's diff",
+                        f"{path} {where} outside this PR's diff",
                         "Inline comments must land on changed lines. If it is "
                         "pre-existing, move it to the third (Pre-existing) section; if "
                         "its anchor is stale, re-prepare. Then re-run."))

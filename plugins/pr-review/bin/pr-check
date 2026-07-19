@@ -32,7 +32,7 @@ from pathlib import Path
 # idiom).
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pr_review_lint import (  # noqa: E402
-    parse_review, parse_diff_ranges, lint, bail_on_problems,
+    Problem, parse_review, parse_diff_ranges, lint, bail_on_problems,
 )
 from pr_review_common import (  # noqa: E402
     REVIEW_NAME, STATE_DIR_NAME, die, log, set_prog,
@@ -58,7 +58,7 @@ def main(argv: list[str]) -> int:
             "Prepare and review first: pr-review <id>.")
 
     ranges = parse_diff_ranges(CANON.read_text())
-    problems: list = []
+    problems: list[Problem] = []
     body, body_line, sections = parse_review(REVIEW.read_text(), problems)
     lint(body, body_line, sections, ranges, problems)
     bail_on_problems(problems, PROG)  # prints the batch and exits 1 if any
