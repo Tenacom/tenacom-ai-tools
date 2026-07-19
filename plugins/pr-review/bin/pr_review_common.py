@@ -127,7 +127,7 @@ def run(*args: str, stdin: str | None = None,
     """subprocess.run with both output streams captured. Text mode by default;
     text=False yields raw bytes for a caller that must police the decoding
     itself (pr-assemble-rules reads git blobs that may not be valid UTF-8)."""
-    return subprocess.run(args, input=stdin, text=text, capture_output=True)
+    return subprocess.run(args, input=stdin, text=text, capture_output=True, check=False)
 
 
 def git(*args: str, what: str) -> str:

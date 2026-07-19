@@ -97,14 +97,33 @@ if TYPE_CHECKING:
 # pr-install copies the modules alongside this file, so the imports work
 # whether pr-finalize runs in place or through that symlink.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from pr_review_lint import (  # noqa: E402
-    Problem, Section, SECTION_COUNT, parse_review, parse_diff_ranges, lint,
-    bail_on_problems, PROSE_LINK, TEXT_END_L,
+from pr_review_cleanup import run_cleanup
+from pr_review_common import (
+    POSTED_NAME,
+    REVIEW_NAME,
+    RUN_DIR_NAME,
+    STATE_DIR_NAME,
+    NoTerminalError,
+    confirm as _confirm,
+    die,
+    gh,
+    gh_api_list,
+    git,
+    log,
+    pause,
+    run,
+    set_prog,
 )
-from pr_review_cleanup import run_cleanup  # noqa: E402
-from pr_review_common import (  # noqa: E402
-    NoTerminalError, POSTED_NAME, REVIEW_NAME, RUN_DIR_NAME, STATE_DIR_NAME,
-    confirm as _confirm, die, gh, gh_api_list, git, log, pause, run, set_prog,
+from pr_review_lint import (
+    PROSE_LINK,
+    SECTION_COUNT,
+    TEXT_END_L,
+    Problem,
+    Section,
+    bail_on_problems,
+    lint,
+    parse_diff_ranges,
+    parse_review,
 )
 
 PROG = "pr-finalize"
