@@ -4,3 +4,7 @@ updates:
     directory: "/"
     schedule: {  interval: "daily" }
     labels: [ "area:deps", "area:ci" ]
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule: {  interval: "weekly" }
+    labels: [ "area:deps", "area:build" ]
