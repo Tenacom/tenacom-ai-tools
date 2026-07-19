@@ -98,12 +98,12 @@ if TYPE_CHECKING:
 # whether pr-finalize runs in place or through that symlink.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pr_review_lint import (  # noqa: E402
-    Problem, Section, parse_review, parse_diff_ranges, lint, bail_on_problems,
-    PROSE_LINK, TEXT_END_L,
+    Problem, Section, SECTION_COUNT, parse_review, parse_diff_ranges, lint,
+    bail_on_problems, PROSE_LINK, TEXT_END_L,
 )
 from pr_review_cleanup import run_cleanup  # noqa: E402
 from pr_review_common import (  # noqa: E402
-    NoTerminal, POSTED_NAME, REVIEW_NAME, RUN_DIR_NAME, STATE_DIR_NAME,
+    NoTerminalError, POSTED_NAME, REVIEW_NAME, RUN_DIR_NAME, STATE_DIR_NAME,
     confirm as _confirm, die, gh, gh_api_list, git, log, pause, run, set_prog,
 )
 
@@ -174,7 +174,7 @@ def route(sections: list[Section], nwo: str, head: str
     fold_groups: list[tuple[str, str, list[str]]] = []
 
     for s in sections:
-        if s.ordinal > 3:  # lint-guaranteed to carry no checked finding
+        if s.ordinal > SECTION_COUNT:  # lint-guaranteed to carry no checked finding
             continue
         items: list[str] = []
         for b in s.blocks:
@@ -328,7 +328,7 @@ def confirm(prompt: str) -> bool:
     irreversible, so it needs a real keystroke a pipe or heredoc cannot pre-answer."""
     try:
         return _confirm(prompt)
-    except NoTerminal:
+    except NoTerminalError:
         die("posting is irreversible and needs an interactive terminal to confirm. "
             "Run pr-finalize from a shell, or use --dry-run to preview.")
 
@@ -336,6 +336,7 @@ def confirm(prompt: str) -> bool:
 # --- main ---------------------------------------------------------------------
 
 def main(argv: list[str]) -> int:
+    """Run the pre-post checks and post the curated REVIEW.md (see module docstring)."""
     dry_run = False
     for arg in argv:
         if arg == "--dry-run":

@@ -43,22 +43,24 @@ def set_prog(name: str) -> None:
 
     Called once at each command's startup. Module state rather than a
     parameter, so the many call sites stay die(msg)/log(msg)."""
-    global _prog
+    global _prog  # noqa: PLW0603 — a documented, deliberate process-global (see module docstring)
     _prog = name
 
 
 def log(msg: str) -> None:
+    """Print msg to stderr, prefixed with the program name."""
     print(f"{_prog}: {msg}", file=sys.stderr)
 
 
 def die(msg: str) -> NoReturn:
+    """Print msg to stderr and exit with status 1."""
     log(msg)
     raise SystemExit(1)
 
 
 # --- user interaction ---------------------------------------------------------
 
-class NoTerminal(Exception):
+class NoTerminalError(Exception):
     """No interactive terminal was available to read a confirmation from.
 
     Raised by confirm() so each command can turn it into its own tailored message
@@ -70,17 +72,17 @@ def confirm(prompt: str) -> bool:
 
     Prefer /dev/tty so an irreversible action needs a real keystroke, not something a
     pipe or heredoc (`echo y | …`) can pre-answer; fall back to stdin only when it is
-    itself interactive; raise NoTerminal when neither is. Two one-directional handles,
+    itself interactive; raise NoTerminalError when neither is. Two one-directional handles,
     NOT "r+": any read+write mode builds a BufferedRandom, whose constructor demands a
     seekable raw stream — and a tty is not seekable, so "r+" raises
     io.UnsupportedOperation (a subclass of OSError, which would mislabel the failure as
     "no terminal"; observed on WSL2)."""
     try:
-        tty_in = open("/dev/tty", "r")
-        tty_out = open("/dev/tty", "w")
+        tty_in = open("/dev/tty")  # noqa: SIM115, PTH123 — deliberate; see the docstring
+        tty_out = open("/dev/tty", "w")  # noqa: SIM115, PTH123
     except OSError:
         if not sys.stdin.isatty():
-            raise NoTerminal
+            raise NoTerminalError from None
         sys.stderr.write(prompt)
         sys.stderr.flush()
         return sys.stdin.readline().strip()[:1] in ("y", "Y")
@@ -102,8 +104,8 @@ def pause(prompt: str) -> bool:
     confirm() this never falls back to stdin: a pause is a courtesy before a wipe, and
     a non-interactive run should simply skip the wipe, not consume a line of input."""
     try:
-        tty_in = open("/dev/tty", "r")
-        tty_out = open("/dev/tty", "w")
+        tty_in = open("/dev/tty")  # noqa: SIM115, PTH123 — deliberate; see the docstring
+        tty_out = open("/dev/tty", "w")  # noqa: SIM115, PTH123
     except OSError:
         return False
     try:
