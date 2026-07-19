@@ -34,8 +34,12 @@ sources, and both must pass. The tool postures, and the reasoning behind them, a
 [`.claude/rules/python-tooling.md`](.claude/rules/python-tooling.md).
 
 CI runs the same two commands on every pull request, and on every push to `main` and
-`develop`, so a branch that skips this gate fails there instead. Ruff and pyright are
-version-pinned, so a local pass and a CI pass mean the same thing.
+`develop`, so a branch that skips this gate fails there instead.
+
+A local pass is necessary but not quite sufficient: the pinned versions make CI agree with
+you about _which_ rules run, but a few of ruff's rules are conditional on the platform, and
+those only ever fire on CI if you develop on WSL or Windows. See
+[`.claude/rules/python-tooling.md`](.claude/rules/python-tooling.md).
 
 ## How work flows
 
