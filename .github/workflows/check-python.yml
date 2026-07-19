@@ -1,0 +1,47 @@
+name: Check Python
+
+on:
+  pull_request:
+  push:
+    branches: [ main, develop, 'develop/**' ]
+
+# Supersede a running check when a pull request is pushed again, but never cancel a
+# branch check: main and develop must always end up with a verdict on their tip.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      # The interpreter is pinned only to keep a runner image bump from perturbing the
+      # gate. It does not decide the verdict: ruff and pyright both target py39 through
+      # their own configuration, whatever Python they run on.
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      # The `pyright` pinned in requirements-dev.txt is the PyPI wrapper: it downloads the
+      # real pyright npm package on first run. (It does not download a Node runtime too —
+      # the runner image ships one, which the wrapper prefers.)
+      - name: Restore pyright's npm package
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/pyright-python
+          key: pyright-${{ runner.os }}-${{ hashFiles('requirements-dev.txt') }}
+      - name: Build developer tooling
+        run: make tools
+      # Both tools run even when the first one fails, so one push reports every problem.
+      - name: Lint
+        run: make lint
+      - name: Type check
+        if: ${{ !cancelled() }}
+        run: make typecheck
