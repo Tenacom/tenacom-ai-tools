@@ -40,8 +40,14 @@ jobs:
       - name: Build developer tooling
         run: make tools
       # Both tools run even when the first one fails, so one push reports every problem.
+      # Ruff emits GitHub annotations on request; pyright has no such output format, so
+      # its plain output is annotated by a problem matcher instead.
       - name: Lint
         run: make lint
+        env:
+          RUFF_OUTPUT_FORMAT: github
       - name: Type check
         if: ${{ !cancelled() }}
-        run: make typecheck
+        run: |
+          echo "::add-matcher::.github/problem-matchers/pyright.json"
+          make typecheck
