@@ -8,6 +8,9 @@
  - changed-files:
     - any-glob-to-any-file:
       - '**/.editorconfig'
+      - '**/.markdownlint-cli2.jsonc'
+      - 'ruff.toml'
+      - 'pyrightconfig.json'
 
 'area:repo':
  - changed-files:
@@ -21,6 +24,19 @@
  - changed-files:
     - any-glob-to-any-file:
       - '.github/workflows/**/*'
+      - '.github/problem-matchers/**/*'
+
+'area:build':
+ - changed-files:
+    - any-glob-to-any-file:
+      - 'Makefile'
+      - '**/plugin.mk'
+      - 'requirements-dev.txt'
+
+'area:deps':
+ - changed-files:
+    - any-glob-to-any-file:
+      - 'requirements-dev.txt'
 
 'area:docs':
  - changed-files:
