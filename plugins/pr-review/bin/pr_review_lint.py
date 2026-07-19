@@ -44,7 +44,8 @@ class Problem:
     the VS Code terminal (the `REVIEW.md:line:column` shape it linkifies). `msg`
     is the one-line statement; `hint`, when present, is the longer guidance,
     printed indented on its own line(s) so it is not read as another location."""
-    __slots__ = ("line", "col", "msg", "hint")
+
+    __slots__ = ("col", "hint", "line", "msg")
 
     def __init__(self, line: int, col: int, msg: str, hint: str = "") -> None:
         self.line = line
@@ -81,8 +82,16 @@ def bail_on_problems(problems: list[Problem], prog: str, note: str = "") -> None
 class Block:
     """One ### finding: checkbox, optional location, prose, and its source lines."""
 
-    __slots__ = ("checked", "path", "start", "end", "prose",
-                 "head_line", "prose_line", "link_col")
+    __slots__ = (
+        "checked",
+        "end",
+        "head_line",
+        "link_col",
+        "path",
+        "prose",
+        "prose_line",
+        "start",
+    )
 
     def __init__(self, checked: bool, path: str | None,
                  start: int | None, end: int | None, prose: str,
@@ -110,8 +119,14 @@ class Block:
 class Section:
     """One ## section: ordinal, label, preamble, and its blocks."""
 
-    __slots__ = ("ordinal", "label", "preamble", "blocks",
-                 "head_line", "preamble_line")
+    __slots__ = (
+        "blocks",
+        "head_line",
+        "label",
+        "ordinal",
+        "preamble",
+        "preamble_line",
+    )
 
     def __init__(self, ordinal: int, label: str, preamble: str,
                  blocks: list[Block], head_line: int, preamble_line: int) -> None:
@@ -146,8 +161,7 @@ def parse_diff_ranges(diff_text: str) -> dict[str, list[tuple[int, int]]]:
     for line in diff_text.splitlines():
         if line.startswith("+++ "):
             p = line[4:].strip()
-            if p.startswith("b/"):
-                p = p[2:]
+            p = p.removeprefix("b/")
             path = None if p == "/dev/null" else p
         elif line.startswith("@@ ") and path is not None:
             m = re.search(r"\+(\d+)(?:,(\d+))?", line)

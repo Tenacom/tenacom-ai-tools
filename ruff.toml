@@ -36,3 +36,6 @@ ignore = [
 
 [lint.pydocstyle]
 convention = "pep257"
+
+[lint.isort]
+combine-as-imports = true  # keep `x as y` in the same block, not a second statement

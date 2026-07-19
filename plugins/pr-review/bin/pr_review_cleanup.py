@@ -19,10 +19,16 @@ and any line a human added, because only the three verbatim entries are pruned.
 from __future__ import annotations
 
 import shutil
-from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 from pr_review_common import (
-    POSTED_NAME, REVIEW_NAME, RUN_DIR_NAME, STATE_DIR_NAME,
+    POSTED_NAME,
+    REVIEW_NAME,
+    RUN_DIR_NAME,
+    STATE_DIR_NAME,
 )
 
 # The exact lines pr-review appends to .git/info/exclude (its "hide every review
