@@ -32,18 +32,18 @@ command sharing the plugin name is a coherence win. `pr-assemble-rules` is a fif
 binary but **not** an end-user command — it is an internal prep helper `pr-review` calls (see
 Base-sourced rule set); it shares the naming and the PATH shim, nothing more.
 
-| Thing                       | Canonical name        |
-| --------------------------- | --------------------- |
-| Prepare/launch command      | `pr-review`           |
-| Post command                | `pr-finalize`         |
-| Check command (offline lint)| `pr-check`            |
-| Cleanup command             | `pr-cleanup`          |
-| Rule-set helper (internal)  | `pr-assemble-rules`   |
-| Review skill invocation     | `/pr-review:run`      |
-| Review skill `name:` / dir  | `run` / `skills/run/` |
-| Snapshot dir (repo root)    | `.pr-review/`         |
-| Base rule set (in snapshot) | `.pr-review/rules/`   |
-| Run dir (repo root)         | `.pr-review-run/`     |
+| Thing                        | Canonical name        |
+| ---------------------------- | --------------------- |
+| Prepare/launch command       | `pr-review`           |
+| Post command                 | `pr-finalize`         |
+| Check command (offline lint) | `pr-check`            |
+| Cleanup command              | `pr-cleanup`          |
+| Rule-set helper (internal)   | `pr-assemble-rules`   |
+| Review skill invocation      | `/pr-review:run`      |
+| Review skill `name:` / dir   | `run` / `skills/run/` |
+| Snapshot dir (repo root)     | `.pr-review/`         |
+| Base rule set (in snapshot)  | `.pr-review/rules/`   |
+| Run dir (repo root)          | `.pr-review-run/`     |
 
 `REVIEW.md` is uppercase and is not a `pr-review` token. The `.git/info/exclude` list a
 prepared repo carries is exactly three entries: `.pr-review/`, `.pr-review-run/`,
@@ -255,13 +255,13 @@ and early Observations all ended in "up to you". Two contracts, both in `SKILL.m
   and false confidence. `denyWrite` neutralizes execution's damage; the SKILL's never-execute rule
   discourages it up front. Egress is sealed by the network proxy (no domain allowed), independent of
   the deny list.
-- **The deny list also path-scopes the file-write tools off the immutable inputs** — `Write`, `Edit`,
-  and `MultiEdit` are denied on `/.pr-review/**` (the snapshot) and `/.git/**`. This is the **tool-side
-  twin of `denyWrite`**, and the two layers guard against different actors: `denyWrite` binds **Bash and
-  its children** read-only (executed PR code), while `Read`/`Edit`/`Write` **bypass the sandbox** and go
-  through permissions (the model's own tool calls, the prompt-injection surface). Without the tool-side
-  deny, an injected instruction could still rewrite the diff and rules the review is judged against, or
-  plant a git hook — so the snapshot must be immutable to **both** layers. It fits the "a name can
+- **The deny list also path-scopes the file-write tools off the immutable inputs** — `Edit` is denied
+  (implicitly denying `Write` too) on `/.pr-review/**` (the snapshot) and `/.git/**`. This is the
+  **tool-side twin of `denyWrite`**, and the two layers guard against different actors: `denyWrite` binds
+  **Bash and its children** read-only (executed PR code), while `Read`/`Edit`/`Write` **bypass the sandbox**
+  and go through permissions (the model's own tool calls, the prompt-injection surface). Without the
+  tool-side deny, an injected instruction could still rewrite the diff and rules the review is judged against,
+  or plant a git hook — so the snapshot must be immutable to **both** layers. It fits the "a name can
   _completely_ deny" bar: `deny` beats a bare `allow`, and a deny even blocks a symlink escape (it
   matches if either the link or its target hits the pattern). Two paths are **deliberately excluded**:
   `.pr-review-run/**` stays tool-writable because every agent delivers its report by `Write`-ing into it
@@ -287,13 +287,13 @@ and early Observations all ended in "up to you". Two contracts, both in `SKILL.m
   separate runtime mechanism), so egress stays sealed. The plain-commands rule stays as a
   **quality/legibility** guideline, not the prompt mechanism: a command that slips it degrades to a
   silently-allowed sandboxed run, never a prompt.
-- `allow`: `Read`, `Task`, `Write`, `Edit`, `MultiEdit`, `Bash(rg:*)`, `Bash(grep:*)`, `Bash(find:*)`,
-  `Bash(ugrep:*)`, `Bash(bfs:*)`, `Bash(git rev-parse:*)`, `Bash(git merge-base:*)`. `deny`: `WebFetch`,
-  `WebSearch`, `Bash(gh:*)`, and the file-write tools scoped to the immutable inputs —
-  `Write`/`Edit`/`MultiEdit` on `/.pr-review/**` and `/.git/**` (see the deny-list bullet above).
-  `Edit`/`MultiEdit` stay in `allow` (bare) so an agent amending its own report does not prompt (the hook
-  covers Bash only), and `deny` overrides that bare `allow` only on the two scoped subtrees; the
-  `Bash(...)` allow entries stay as documentation and a fallback if the hook is ever absent.
+- `allow`: `Read`, `Task`, `Write`, `Edit`, `Bash(rg:*)`, `Bash(grep:*)`, `Bash(find:*)`, `Bash(ugrep:*)`,
+  `Bash(bfs:*)`, `Bash(git rev-parse:*)`, `Bash(git merge-base:*)`. `deny`: `WebFetch`, `WebSearch`,
+  `Bash(gh:*)`, and the file-write tools scoped to the immutable inputs — `Edit` on `/.pr-review/**`
+  and `/.git/**` (see the deny-list bullet above).
+  `Edit` stays in `allow` (bare) so an agent amending its own report does not prompt (the hook covers
+  Bash only), and `deny` overrides that bare `allow` only on the two scoped subtrees; the `Bash(...)`
+  allow entries stay as documentation and a fallback if the hook is ever absent.
 - Search is one read-only command in fixed shapes — `rg` (ripgrep) by default, with `grep`/`find`
   (and the legacy `ugrep`/`bfs` names) as allow-listed equivalents Claude Code may expose depending
   on the build. `rg` is backtracking-immune; the embedded fallbacks run in-process, so patterns stay
