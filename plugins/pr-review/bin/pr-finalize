@@ -84,6 +84,10 @@ import json
 import shutil
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import re
 
 # The shared modules live beside this script: pr_review_lint (the REVIEW.md
 # grammar, model and linter), pr_review_cleanup (the artifact wipe offered
@@ -143,7 +147,7 @@ def linkify_prose(text: str, nwo: str, head: str) -> str:
 
     Assumes a lint-clean tree: pr_review_lint.check_fragments has already refused
     any fragment that is not a bare line, so every #frag reached here is digits."""
-    def repl(m: "re.Match[str]") -> str:
+    def repl(m: re.Match[str]) -> str:
         link_text, target = m.group(1), m.group(2)
         if "#" in target:
             path, _, frag = target.rpartition("#")
