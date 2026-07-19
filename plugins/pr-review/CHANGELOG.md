@@ -15,6 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Bugs fixed in this release
 
+- **No more warnings about unmatched permission deny rules.**
+  Tool permission lists have been revised:
+  
+  - the `MultiEdit` tool (removed since Claude Code v2.0.0) is no longer mentioned;
+  - `Write()` permissions have been removed, as the existing `Edit()` permissions also govern the `Write` tool, as stated in [Claude Code's documentation](https://code.claude.com/docs/en/tools-reference#configure-tools-with-permission-rules-and-hooks).
+
 ### Known problems introduced by this release
 
 ## [2.3.0](https://github.com/Tenacom/tenacom-ai-tools/releases/tag/pr-review/2.3.0) (2026-07-18)
