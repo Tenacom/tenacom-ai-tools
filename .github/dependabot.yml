@@ -4,4 +4,3 @@ updates:
     directory: "/"
     schedule: {  interval: "daily" }
     labels: [ "area:deps", "area:ci" ]
-    reviewers: [ "rdeago" ]

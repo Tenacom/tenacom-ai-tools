@@ -17,6 +17,10 @@ THIRD-PARTY-NOTICES @rdeago
 # Infrastructure files
 .editorconfig @rdeago
 .claude-plugin/ @rdeago
+Makefile @rdeago
+requirements-dev.txt @rdeago
+ruff.toml @rdeago
+pyrightconfig.json @rdeago
 
 # Documentation
 CHANGELOG.md @rdeago
