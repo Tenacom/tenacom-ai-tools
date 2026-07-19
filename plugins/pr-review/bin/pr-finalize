@@ -84,7 +84,7 @@ import json
 import shutil
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     import re
@@ -161,7 +161,7 @@ def linkify_prose(text: str, nwo: str, head: str) -> str:
 
 
 def route(sections: list[Section], nwo: str, head: str
-          ) -> tuple[list[dict], list[tuple[str, str, list[str]]]]:
+          ) -> tuple[list[dict[str, Any]], list[tuple[str, str, list[str]]]]:
     """Sort checked findings into inline comments and body-folded groups.
 
     Assumes a lint-clean tree (pr_review_lint.lint has passed): every inline
@@ -170,7 +170,7 @@ def route(sections: list[Section], nwo: str, head: str
     Returns (comments, fold_groups) where a fold group is
     (label, preamble, [rendered finding text...]) in file order.
     """
-    comments: list[dict] = []
+    comments: list[dict[str, Any]] = []
     fold_groups: list[tuple[str, str, list[str]]] = []
 
     for s in sections:
@@ -184,20 +184,22 @@ def route(sections: list[Section], nwo: str, head: str
 
             # Sections 1 & 2, located: inline. lint has confirmed both endpoints
             # are in the diff, so the all-or-nothing post cannot 422 here.
-            if b.located and s.ordinal in (1, 2):
-                comment = {"path": b.path, "body": prose,
-                           "line": b.end, "side": "RIGHT"}
-                if b.end > b.start:
-                    comment["start_line"] = b.start
+            loc = b.location()
+            if loc is not None and s.ordinal in (1, 2):
+                path, start, end = loc
+                comment: dict[str, Any] = {"path": path, "body": prose, "line": end, "side": "RIGHT"}
+                if end > start:
+                    comment["start_line"] = start
                     comment["start_side"] = "RIGHT"
                 comments.append(comment)
                 continue
 
             # Everything else folds: section 3 (any), sections 1 & 2 locationless.
-            if b.located:
-                base = b.path.rsplit("/", 1)[-1]
-                rng = f"L{b.start}" + (f"-L{b.end}" if b.end > b.start else "")
-                link = permalink(nwo, head, b.path, b.start, b.end)
+            if loc is not None:
+                path, start, end = loc
+                base = path.rsplit("/", 1)[-1]
+                rng = f"L{start}" + (f"-L{end}" if end > start else "")
+                link = permalink(nwo, head, path, start, end)
                 items.append(f"[{base} {rng}]({link})\n\n{prose}")
             else:
                 items.append(prose)
@@ -227,8 +229,8 @@ def assemble_body(body: str, fold_groups: list[tuple[str, str, list[str]]]) -> s
     return ("\n\n".join(parts)).strip() + "\n"
 
 
-def format_recap(sections: list[Section], comments: list[dict], fold_count: int,
-                 event: str, imported: list[dict], has_draft: bool) -> str:
+def format_recap(sections: list[Section], comments: list[dict[str, Any]], fold_count: int,
+                 event: str, imported: list[dict[str, Any]], has_draft: bool) -> str:
     """Human-readable curation recap printed before the prompt: per-section
     checked/unchecked/total, the pending-review import when there is one, then
     the verdict about to be posted. A section that shows 0 checked is the cue
@@ -259,7 +261,7 @@ def format_recap(sections: list[Section], comments: list[dict], fold_count: int,
 
 # --- the curator's pending review -----------------------------------------------
 
-def fetch_pending_review(nwo: str, pr_id: str) -> tuple[dict | None, list[dict]]:
+def fetch_pending_review(nwo: str, pr_id: str) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
     """The curator's own pending review on the PR, with its comments, verbatim.
 
     GitHub shows a pending review only to its author and allows one per user
@@ -281,7 +283,7 @@ def fetch_pending_review(nwo: str, pr_id: str) -> tuple[dict | None, list[dict]]
     return review, comments
 
 
-def convert_pending_comments(comments: list[dict], pr_url: str) -> list[dict]:
+def convert_pending_comments(comments: list[dict[str, Any]], pr_url: str) -> list[dict[str, Any]]:
     """Pending comments as create-review payload entries, anchors untouched.
 
     LEFT-side and multi-line anchors pass through: GitHub anchored them to the
@@ -292,7 +294,7 @@ def convert_pending_comments(comments: list[dict], pr_url: str) -> list[dict]:
     all-or-nothing post) and file-level comments (no line anchor; payload
     support unconfirmed). A line comment with no line anchor is a stale anchor
     and is refused likewise."""
-    imported: list[dict] = []
+    imported: list[dict[str, Any]] = []
     refused: list[str] = []
     for c in comments:
         where = f"{c.get('path', '?')}:{c.get('line') or c.get('original_line') or '?'}"
@@ -303,8 +305,8 @@ def convert_pending_comments(comments: list[dict], pr_url: str) -> list[dict]:
         elif c.get("line") is None:
             refused.append(f"{where} — no line anchor (stale?)")
         else:
-            entry = {"path": c["path"], "body": c["body"],
-                     "line": c["line"], "side": c.get("side") or "RIGHT"}
+            entry: dict[str, Any] = {"path": c["path"], "body": c["body"],
+                                     "line": c["line"], "side": c.get("side") or "RIGHT"}
             if c.get("start_line") is not None:
                 entry["start_line"] = c["start_line"]
                 entry["start_side"] = c.get("start_side") or entry["side"]
@@ -409,7 +411,7 @@ def main(argv: list[str]) -> int:
     # delete only after the confirmations.
     pr_url = f"https://github.com/{nwo}/pull/{pr_id}"
     pending, pending_comments = fetch_pending_review(nwo, pr_id)
-    imported: list[dict] = []
+    imported: list[dict[str, Any]] = []
     draft_body = ""
     if pending is not None:
         imported = convert_pending_comments(pending_comments, pr_url)
@@ -539,6 +541,7 @@ def main(argv: list[str]) -> int:
         die(f"posting the review failed: {p.stderr.strip() or 'gh error'}."
             f"{recovery}")
     response_text = p.stdout
+    response: dict[str, Any] = {}
     try:
         response = json.loads(response_text)
         review_url = response.get("html_url", "")
