@@ -13,6 +13,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changes to existing features
 
+### Bugs fixed in this release
+
+### Known problems introduced by this release
+
+## [2.3.1](https://github.com/Tenacom/tenacom-ai-tools/releases/tag/pr-review/2.3.1) (2026-07-21)
+
+### Changes to existing features
+
 - **`pr-finalize` no longer refuses to post when the pull request head has moved.**
   It prints a `*** WARNING: GIT POSITION MISMATCH ***` banner naming the three commits it compares — the reviewed head, your local `HEAD`, and the pull request head on GitHub — and says which one moved.
   Fixing something yourself during a review no longer costs you the curation.
@@ -37,8 +45,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **No more warnings about `Write()` permission rules.**
   The `Write()` deny rules have been removed: the existing `Edit()` rules already govern the `Write` tool, per [Claude Code's documentation](https://code.claude.com/docs/en/tools-reference#configure-tools-with-permission-rules-and-hooks).
-
-### Known problems introduced by this release
 
 ## [2.3.0](https://github.com/Tenacom/tenacom-ai-tools/releases/tag/pr-review/2.3.0) (2026-07-18)
 
