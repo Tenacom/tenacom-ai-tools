@@ -23,6 +23,7 @@ One more property matters when the PR comes from a stranger: the part that reads
   - [Curate `REVIEW.md`](#curate-reviewmd)
   - [Check as you curate](#check-as-you-curate)
   - [Preview, then post](#preview-then-post)
+  - [When the head has moved](#when-the-head-has-moved)
   - [Your own findings: draft them as a pending review](#your-own-findings-draft-them-as-a-pending-review)
   - [Re-runs and re-preparation](#re-runs-and-re-preparation)
   - [Cleaning up](#cleaning-up)
@@ -248,6 +249,24 @@ Before prompting, `pr-finalize` prints a per-section recap — checked, unchecke
 Posting is a one-way step. Once the review is up, `pr-finalize` will not post a second time, and the review will not run again on this preparation. To review the PR afresh, see [Re-runs and re-preparation](#re-runs-and-re-preparation).
 
 When the post succeeds, `pr-finalize` pauses before removing the local review artifacts: press Enter to delete them, or Ctrl-C to keep them for a post-mortem (see [Cleaning up](#cleaning-up)).
+
+### When the head has moved
+
+`pr-finalize` compares three commits before posting: the **reviewed head** (what `REVIEW.md`'s findings point at), your **local `HEAD`**, and the **PR head** on GitHub. Preparation left all three equal; if they have parted since, a banner names each one and says which way it moved.
+
+```text
+pr-finalize: *** WARNING: GIT POSITION MISMATCH ***
+  reviewed head  3f9a1c2ed4b7  — what REVIEW.md's findings point at
+  local HEAD     8b04d77a91c3  — 2 commit(s) ahead
+  PR head        3f9a1c2ed4b7  — unchanged, on GitHub
+  The PR head still matches the review; nothing has moved.
+```
+
+This is a warning, not a refusal. Fixing a run of typos yourself, or restructuring something faster than it could be explained finding by finding, is often the better review — and it should not cost you the curation you have already done.
+
+The review posts **pinned to the reviewed commit**, so a moved **PR head** does not misplace anything: each inline comment shows against the code as it was reviewed, and GitHub marks it _outdated_ where a later commit changed those exact lines — it is never relocated onto whatever now sits at that line number. Permalinks are pinned the same way. What a moved head really means is that the review now describes code the PR has moved past; the banner is your cue to post it as-is or re-prepare against the current head.
+
+A local `HEAD` that is merely ahead costs the post nothing, but the author cannot see those commits, and any finding you fixed in them still reads as unfixed. So `pr-finalize` offers to push them — **only ever as a fast-forward**, never a force-push, so it cannot rewrite the branch. Decline and posting continues regardless.
 
 ### Your own findings: draft them as a pending review
 

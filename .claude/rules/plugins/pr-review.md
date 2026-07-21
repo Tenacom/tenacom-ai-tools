@@ -489,6 +489,29 @@ bumped to the precondition-fixed number.
   (with a `command -v` guard); no `jq`.
 - PR/base/head come from `.pr-review/state.json`, **never** from `REVIEW.md` frontmatter
   (it parses the body only).
+- **A moved head is reported, not refused — and pinning makes posting safe.** Preparation
+  leaves the reviewed head, the local `HEAD` and the PR head equal; `pr-finalize` re-reads all
+  three and prints a `*** WARNING: GIT POSITION MISMATCH ***` banner when they have parted. The
+  old hard refusal was right about the risk and wrong about the price — a curator who fixes a
+  typo run or a structural problem themselves had to discard the whole curation. The risk itself
+  is then removed at the source: the create-review POST sets `commit_id` to the reviewed head
+  (verified empirically, 2026-07-21), so GitHub resolves every anchor against the diff the review
+  was written for. A comment whose line a later commit changed is marked **outdated** — shown
+  against the reviewed code — never relocated onto whatever now sits at that line. So there is no
+  moved-head gate: the banner and the recap's moved line are notice, and the ordinary post
+  confirmation is the one decision. When the head has not moved, the reviewed head is the latest
+  commit and the pin is a no-op.
+- **The push offer is fast-forward only.** Destination from `branch.pr/<id>.remote`/`.merge`
+  (the config `pr-review` pushes with), offered only when the PR head is an ancestor of the
+  local `HEAD`. A plain `git push` refuses anything else, so that bound is structural rather
+  than a flag; rewriting the contributor's branch stays preparation's job, where the lease is
+  taken deliberately. Declining is not an error. A failed push is fatal — it was asked for.
+- **The residual is staleness, not misplacement.** Pinning closes the wrong-line hole; what a
+  moved head still costs is that the review describes code the PR has moved past — a judgement
+  the curator makes by posting or re-preparing, not a correctness defect. The one case pinning
+  cannot cover is a reviewed commit a force-push dropped from the PR: GitHub then rejects the
+  pin, the POST 422s, and the failure message names it and points at re-preparation.
+  `posted.json` records all three heads for the post-mortem.
 - One `gh api … /pulls/<n>/reviews` POST. The `event` is **the verdict, derived from
   curation**: no checked finding → `APPROVE`; any checked finding (in any section) →
   `REQUEST_CHANGES`. `COMMENT` is never used — GitHub takes a PR out of "review requested" the
