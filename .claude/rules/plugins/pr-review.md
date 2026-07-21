@@ -512,6 +512,16 @@ bumped to the precondition-fixed number.
   cannot cover is a reviewed commit a force-push dropped from the PR: GitHub then rejects the
   pin, the POST 422s, and the failure message names it and points at re-preparation.
   `posted.json` records all three heads for the post-mortem.
+- **The lost-response guard: the assembled body is an idempotency fingerprint.** A create-review
+  POST can succeed while its HTTP response is lost (a dropped connection reads as a failure), and
+  the marker is written only after the response — so a naive re-run would double-post. Before
+  posting, `pr-finalize` lists the PR's reviews and, if one of **ours** (matched by login) carries
+  the body we assembled (**substring**, since a pending draft may be appended after it), treats
+  that as the completed post: it writes the marker and stops. The fingerprint is the pre-draft
+  `our_body`, deterministic and recomputed identically on a re-run; an empty body is skipped (it
+  would match anything, and an empty-bodied review has no comments to double, so the worst case is
+  a duplicate APPROVE, never a lost finding). `mark_posted` is shared with the normal success path
+  so both write `posted.md`/`posted.json` identically.
 - One `gh api … /pulls/<n>/reviews` POST. The `event` is **the verdict, derived from
   curation**: no checked finding → `APPROVE`; any checked finding (in any section) →
   `REQUEST_CHANGES`. `COMMENT` is never used — GitHub takes a PR out of "review requested" the
