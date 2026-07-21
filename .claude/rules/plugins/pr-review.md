@@ -522,7 +522,8 @@ bumped to the precondition-fixed number.
   would match anything, and an empty-bodied review has no comments to double, so the worst case is
   a duplicate APPROVE, never a lost finding). `mark_posted` is shared with the normal success path
   so both write `posted.md`/`posted.json` identically.
-- One `gh api … /pulls/<n>/reviews` POST. The `event` is **the verdict, derived from
+- With no pending review, one `gh api … /pulls/<n>/reviews` POST (with a pending review it
+  augments and submits instead — see below). The `event` is **the verdict, derived from
   curation**: no checked finding → `APPROVE`; any checked finding (in any section) →
   `REQUEST_CHANGES`. `COMMENT` is never used — GitHub takes a PR out of "review requested" the
   moment any review lands regardless of event, so a `COMMENT` would only withhold the author's
@@ -534,8 +535,8 @@ bumped to the precondition-fixed number.
   empirically against the live API (2026-07-10; the docs' unconditional "body is required"
   wording overstates it, and the web UI enforces the same body-or-comments rule). Every
   `REQUEST_CHANGES` pr-finalize sends satisfies it by construction — the event fires only
-  when a finding is checked or an inline comment imported, and any folded finding makes the
-  body non-empty — so there is **no empty-body refusal**.
+  when a finding is checked or the curator's pending review carries a comment, and any folded
+  finding makes the body non-empty — so there is **no empty-body refusal**.
 - Before prompting, `pr-finalize` prints a per-section recap (label + checked / unchecked /
   total) and the pending verdict, so a half-curated `REVIEW.md` (e.g. 0 checked past §1) is
   visible. An `APPROVE` takes a **second** confirmation — an unmodified `REVIEW.md` may be an
@@ -548,8 +549,8 @@ bumped to the precondition-fixed number.
   `pr-check` runs the identical lint offline (see below), so a clean `pr-check` is a clean
   `pr-finalize`.
 - Routing by section ordinal: §1/§2 located → inline (**must** be in-diff or hard-refuse —
-  the one thing that would 422 the all-or-nothing post); §1/§2 locationless → fold; §3 → all
-  fold, with a `blob/<head>` permalink when located.
+  or the create-review POST 422s and the pinned add cannot place it); §1/§2 locationless →
+  fold; §3 → all fold, with a `blob/<head>` permalink when located.
 - **`linkify_prose` converts the relative code links** in the body and every posted prose
   (inline bodies, folded findings) to `blob/<head>` permalinks — the counterpart to the
   one-format REVIEW.md contract above. Start line from the `#<digits>` target fragment; range
@@ -563,34 +564,50 @@ bumped to the precondition-fixed number.
   strings only, so an unchecked block's bad link stays inert until checked. Stdlib regex, no
   Markdown-parser dependency: it matches our own closed `[text](./path#line)` grammar, not
   arbitrary Markdown — a library would break the stdlib-only distribution for no gain.
-- **The curator's own pending GitHub review is a supported input channel**
+- **The curator's own pending GitHub review is augmented and submitted, not rebuilt**
   (Tenacom/tenacom-ai-tools#9). The "Start a review" flow is the natural place for the
-  curator's own findings — saved server-side, UI-anchored — but its existence 422s the
-  finalize POST (one pending review per user per PR, even with an `event` supplied). So
-  `pr-finalize` detects it (a read-only GET; no new arguments, preserving the "no args or
-  `--dry-run`" contract) and folds it into the single review object: comments join the
-  payload **verbatim** — anchors pass through untouched, LEFT-side and multi-line included;
-  GitHub anchored them to the diff by construction, so no in-diff lint. They deliberately do
-  **not** round-trip through `REVIEW.md`: its `](./path#start)` grammar cannot carry those
-  anchors, and the checkbox gate adds nothing — these comments are human-authored, and
-  writing them in the UI _was_ the curation act. For the same reason an imported comment is
-  a finding: it forces `REQUEST_CHANGES` even with zero checked blocks (a draft body alone
-  does not). The pending review's draft body, if any, is appended at the **end** of the
-  assembled review body, separated by `---`.
-- **Import ordering invariant: fetch → persist → confirm → delete → post.** Every run
-  fetches fresh (the server is the source of truth: comments edited on github.com between
-  runs are picked up) and writes the fetched review verbatim to
-  `.pr-review-run/pending-import.json` **before anything destructive** — a recovery
-  artifact, **never an input**: overwritten on each run (`--dry-run` included, handy for
-  debugging), and simply left on disk; if the POST fails after the delete it holds the only
-  surviving copy, and the failure message says so. The confirm offers **import or abort
-  only** — no "skip and post anyway", because the POST cannot succeed while the pending
-  review exists; aborting names the manual escape hatch (submit or discard on github.com,
-  then re-run). **Refused by name**: reply comments (the create-review `comments` array
-  cannot express `in_reply_to`, and posting them separately would break the all-or-nothing
-  post), file-level comments (`subject_type: file`; payload support unconfirmed), and
-  comments with a null `line` (stale anchor). `--dry-run` shows the would-be import and
-  touches nothing server-side.
+  curator's own findings — saved server-side, UI-anchored — but its existence 422s a
+  create-review POST (one pending review per user per PR, even with an `event` supplied). So
+  when there is a pending review, `pr-finalize` does **not** post a separate object: it adds
+  this review's inline findings to the pending review and **submits** it (a read-only GET to
+  detect, no new arguments, preserving the "no args or `--dry-run`" contract). The submit's
+  `event` is the verdict and its body is `body_text` (the assembled body already folds the
+  curator's draft in, because the submit body **replaces** the pending draft — verified
+  empirically). The curator's own comments are never rebuilt or deleted, so **any shape they
+  take rides along untouched** — replies, file-level, LEFT-side, multi-line. This **retired
+  the old refusal** of replies and file-level comments: it existed only because the
+  create-review payload could not express them, and submit does not go through that payload.
+  A pending comment is a human-authored finding, so its presence forces `REQUEST_CHANGES`
+  even with zero checked blocks (a draft body alone does not).
+- **Adding a finding needs GraphQL, and the pin needs the deprecated mutation.** The REST
+  create-review-comment endpoint refuses while a pending review exists (it would open a
+  second). `addPullRequestReviewThread` is the modern line-based add but anchors to the
+  review's own commit; `addPullRequestReviewComment` is deprecated and position-based but is
+  the **only** add that lets the commit be chosen. So `post_augment` branches on the pending
+  review's `commit_id`: **equal to the reviewed head** → thread (line/side, multi-line
+  capable, correctly anchored); **not equal** → commit-pinned single-line comment at the
+  reviewed head via the deprecated mutation. The deprecation is accepted (three years
+  standing, no replacement while the modern mutation lacks `commitOID`, three-month notice).
+  A `line`→`position` mapper (`pr_review_lint.diff_position`, verified against the API)
+  feeds the pinned add.
+- **The pinned path cannot carry a line range, so a checked range finding there is refused
+  by name** — the whole post held back, nothing submitted, so the fix-and-re-run lands in one
+  review. Not flattened: a flattened multi-line `suggestion` would corrupt. Two remedies are
+  named — resolve the pending review on github.com and re-run (create-review then posts it
+  whole, range **and** pin), or narrow the anchor to one line. Only the intersection *pinned
+  path ∧ range finding* hits this; a range on the thread path (reviewed head unmoved) posts
+  whole.
+- **Lost-response idempotency, no breadcrumb needed.** A partial augment (some findings added,
+  submit not reached) leaves the review PENDING; the re-run **reconciles** — `comment_key`
+  is `(original_commit_id, path, original_position, normalized body)`, matched against the
+  pending review's current comments, skipping what is already there and adding the rest.
+  **Position, not line**: a PENDING review's comments carry a diff position but leave `line`
+  null until submit, and reconciliation runs against the still-pending review. A submitted-
+  but-unmarked review is caught instead by `find_prior_post` (body fingerprint, see the
+  lost-response guard). Between them every window is covered, so the once-planned breadcrumb
+  was dropped as redundant. `.pr-review-run/pending-import.json` remains, now a plain
+  post-mortem snapshot (nothing is deleted, so it is no longer a recovery-before-delete copy).
+  `--dry-run` shows what would be added/submitted and touches nothing server-side.
 - On success writes `posted.md`/`posted.json`; `REVIEW.md` is kept (unchecked findings
   survive). `pr-review` refuses to relaunch a preparation whose `pr-finalize` already posted
   (the `.pr-review-run/posted.md` marker).

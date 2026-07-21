@@ -26,6 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Re-running `pr-finalize` after a lost connection no longer risks a double post.**
   If a post reached GitHub but its response was lost, the next run recognises the already-posted review by its body and writes the completion marker instead of posting a second copy.
 
+- **Your own pending GitHub review is now submitted with the review's findings added, instead of copied and deleted.**
+  Your comments keep their exact anchors, and replies to existing threads and file-level comments — which `pr-finalize` used to refuse — now ride along.
+  Your findings are added pinned to the reviewed commit. If your pending review happens to sit at a different commit than the one reviewed, a checked finding that spans a range of lines cannot be added there without dropping its range; `pr-finalize` refuses that one finding with instructions rather than post it with the range (and any multi-line suggestion) mangled.
+
 ### Bugs fixed in this release
 
 - **No more warnings about the unknown `MultiEdit` tool.**
