@@ -522,6 +522,18 @@ bumped to the precondition-fixed number.
   would match anything, and an empty-bodied review has no comments to double, so the worst case is
   a duplicate APPROVE, never a lost finding). `mark_posted` is shared with the normal success path
   so both write `posted.md`/`posted.json` identically.
+  - **A `PENDING` review is skipped, and must stay skipped.** That endpoint returns the curator's
+    own pending review too — it is the very list `fetch_pending_review` reads — so a login-and-body
+    match alone would let a draft carrying our body pass for a completed post, writing the marker
+    over a review nobody ever sent. A draft is by definition not a post.
+  - **The recovery short-circuits ahead of the augment path, so it says what it left alone.** A
+    completed prior post is the whole review and takes no additions, and the marker it writes closes
+    the preparation — so a pending review that exists at recovery time is untouched and now
+    unreachable by `pr-finalize`. It is not lost (it is still a draft on github.com), but silence
+    there would read as "handled", so the recovery names it and points at the two ways out (submit
+    on github.com, or re-prepare). One tense-neutral string, `pending_untouched`, is shared with
+    `--dry-run`, and the dry run's augment preview is an `elif` behind the recovery notice: when
+    both apply, the augment is exactly what will _not_ happen, so previewing it would be a lie.
 - With no pending review, one `gh api … /pulls/<n>/reviews` POST (with a pending review it
   augments and submits instead — see below). The `event` is **the verdict, derived from
   curation**: no checked finding → `APPROVE`; any checked finding (in any section) →

@@ -458,16 +458,36 @@ def find_prior_post(nwo: str, pr_id: str, our_body: str, login: str) -> dict[str
     empty-bodied review carries no comments to double either, so the cost of
     missing it is at most a duplicate APPROVE, never a lost finding. Matched to our
     own login, so another user quoting the review cannot masquerade as our prior
-    post and suppress a real one."""
+    post and suppress a real one. A PENDING review is skipped: this endpoint returns
+    our own pending review too (it is what fetch_pending_review reads), and a draft
+    is by definition not a completed post — mistaking one for a prior post would
+    write the marker, closing the preparation over a review nobody ever sent."""
     probe = our_body.strip()
     if not probe:
         return None
     reviews = gh_api_list(f"repos/{nwo}/pulls/{pr_id}/reviews",
                           what=f"listing PR #{pr_id} reviews")
     for r in reviews:
+        if r.get("state") == "PENDING":
+            continue
         if (r.get("user") or {}).get("login") == login and probe in (r.get("body") or ""):
             return r
     return None
+
+
+def pending_untouched(pr_id: str) -> str:
+    """The note the lost-response recovery owes a curator who also has a pending review.
+
+    The recovery short-circuits ahead of the augment path — a completed prior post is
+    the whole review, and nothing can be added to it — so the pending review is left
+    exactly as it was. Saying nothing would read as "handled": the marker the recovery
+    writes closes the preparation, so pr-finalize will never reach that pending review
+    again. Tense-neutral and shared by the dry run and the real run, so the preview and
+    the act cannot drift."""
+    return (f"a pending review of yours is also open on PR #{pr_id}; the recovery does not "
+            "touch it, and the marker closes this preparation, so pr-finalize cannot add to "
+            f"it any more. Submit it on github.com, or re-prepare (pr-review {pr_id}) to fold "
+            "it into a fresh review.")
 
 
 def mark_posted(review_url: str, record: dict[str, Any]) -> int:
@@ -806,17 +826,22 @@ def main(argv: list[str]) -> int:
     if dry_run:
         print(json.dumps(payload, indent=2, ensure_ascii=False))
         sys.stderr.write(recap)
-        if pending is not None:
+        # Order matters, and so does the elif: the recovery short-circuits ahead of
+        # the augment path, so when both apply the augment is precisely what would
+        # NOT happen. Announcing it first would preview a post the real run never makes.
+        if prior is not None:
+            log(f"note: a review of yours already carries this body "
+                f"({prior.get('html_url', '')}); a real run would treat this as an "
+                "already-completed post and write the marker instead of re-posting.")
+            if pending is not None:
+                log(pending_untouched(pr_id))
+        elif pending is not None:
             how = ("as threads at the reviewed head"
                    if (pending.get("commit_id") or "") == head
                    else "pinned single-line (your review is anchored at another commit)")
             log(f"a pending review of yours exists on PR #{pr_id}; finalizing will add "
                 f"these findings to it ({how}) and submit it, its own comments kept "
                 f"(snapshot: {PENDING_IMPORT}).")
-        if prior is not None:
-            log(f"note: a review of yours already carries this body "
-                f"({prior.get('html_url', '')}); a real run would treat this as an "
-                "already-completed post and write the marker instead of re-posting.")
         log("dry run — nothing posted.")
         return 0
 
@@ -826,6 +851,8 @@ def main(argv: list[str]) -> int:
         url = prior.get("html_url", "")
         log(f"a review of yours already carries this body — a prior post whose "
             f"response was lost: {url}. Nothing re-posted; writing the marker.")
+        if pending is not None:
+            log(pending_untouched(pr_id))
         return mark_posted(url, {"recovered": True, "review_url": url,
                                  "review_id": prior.get("id"),
                                  "heads": {"reviewed": head, "local": local_head,
