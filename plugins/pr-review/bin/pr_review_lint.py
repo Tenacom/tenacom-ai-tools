@@ -179,6 +179,63 @@ def in_diff(ranges: dict[str, list[tuple[int, int]]], path: str, line: int) -> b
     return any(lo <= line <= hi for lo, hi in ranges.get(path, ()))
 
 
+def diff_position(diff_text: str, path: str, target_line: int, side: str = "RIGHT") -> int | None:
+    """The diff position of (path, target_line, side) in diff_text, or None.
+
+    GitHub's addPullRequestReviewComment anchors a comment by POSITION, not line:
+    the count of diff lines below the file's first `@@`, the line just under it
+    being 1, rising through context, +/- lines, and each subsequent `@@` header
+    (which is itself a position), up to the next file. RIGHT matches by new-file
+    line number, LEFT by old-file. This mirrors the position GitHub stores for the
+    same anchor (verified against the live API: a RIGHT anchor on a changed line
+    resolves to the position GitHub reports as original_position). Used only on the
+    pinned-augment path, where a comment must be added to an existing pending
+    review at the reviewed commit and the create-review line/side form is out of
+    reach — everywhere else line/side travels directly."""
+    cur: str | None = None
+    pos: int | None = None       # None until this file's first @@
+    old_ln = new_ln = 0
+    for line in diff_text.splitlines():
+        if line.startswith("+++ "):
+            if cur == path:
+                return None      # passed the file's hunks without a match
+            p = line[4:].strip().removeprefix("b/")
+            cur = None if p == "/dev/null" else p
+            pos = None
+            continue
+        if cur != path:
+            continue
+        if line.startswith("@@ "):
+            m = re.search(r"-(\d+)(?:,\d+)? \+(\d+)(?:,\d+)?", line)
+            if not m:
+                continue
+            old_ln, new_ln = int(m.group(1)), int(m.group(2))
+            pos = 0 if pos is None else pos + 1   # a later @@ is itself a position
+            continue
+        if pos is None:
+            continue                              # ---/index lines before the first @@
+        if line[:1] not in " +-\\":
+            pos = None                            # left this file's hunks (next diff --git)
+            continue
+        pos += 1
+        tag = line[:1]
+        if tag == "+":
+            if side == "RIGHT" and new_ln == target_line:
+                return pos
+            new_ln += 1
+        elif tag == "-":
+            if side == "LEFT" and old_ln == target_line:
+                return pos
+            old_ln += 1
+        elif tag == " ":
+            if (side == "RIGHT" and new_ln == target_line) or (side == "LEFT" and old_ln == target_line):
+                return pos
+            new_ln += 1
+            old_ln += 1
+        # tag == "\\" ("\ No newline at end of file"): a position, no line advance
+    return None
+
+
 # --- parsing ------------------------------------------------------------------
 
 def parse_review(text: str, problems: list[Problem]
