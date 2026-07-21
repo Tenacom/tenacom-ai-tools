@@ -23,6 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`pr-finalize` offers to push local commits the pull request head does not carry.**
   Only as a fast-forward, never a force-push. Decline and it posts anyway.
 
+- **Re-running `pr-finalize` after a lost connection no longer risks a double post.**
+  If a post reached GitHub but its response was lost, the next run recognises the already-posted review by its body and writes the completion marker instead of posting a second copy.
+
 ### Bugs fixed in this release
 
 - **No more warnings about the unknown `MultiEdit` tool.**

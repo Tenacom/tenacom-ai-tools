@@ -463,6 +463,60 @@ def offer_push(pr_id: str, local: str, live: str, *, dry_run: bool) -> str:
     return local
 
 
+# --- the lost-response guard --------------------------------------------------
+
+def whoami() -> str:
+    """Our GitHub login, for telling our own reviews from anyone else's."""
+    return gh("api", "user", "--jq", ".login", what="reading your GitHub login").strip()
+
+
+def find_prior_post(nwo: str, pr_id: str, our_body: str, login: str) -> dict[str, Any] | None:
+    """A review of ours already carrying our_body, or None — the lost-response guard.
+
+    A create-review POST can succeed while its HTTP response is lost (a dropped
+    connection reads as a failure), and a naive re-run would post a second copy.
+    our_body — the body assembled from REVIEW.md, before any pending draft is
+    appended — is a deterministic fingerprint, recomputed identically on a re-run,
+    so a review of ours whose body CONTAINS it (substring: a draft may follow it)
+    is that first post. Empty our_body is skipped: it would match anything, and an
+    empty-bodied review carries no comments to double either, so the cost of
+    missing it is at most a duplicate APPROVE, never a lost finding. Matched to our
+    own login, so another user quoting the review cannot masquerade as our prior
+    post and suppress a real one."""
+    probe = our_body.strip()
+    if not probe:
+        return None
+    reviews = gh_api_list(f"repos/{nwo}/pulls/{pr_id}/reviews",
+                          what=f"listing PR #{pr_id} reviews")
+    for r in reviews:
+        if (r.get("user") or {}).get("login") == login and probe in (r.get("body") or ""):
+            return r
+    return None
+
+
+def mark_posted(review_url: str, record: dict[str, Any]) -> int:
+    """Write the posted markers — posted.md (the guard) first, then posted.json.
+
+    Returns 0, or 1 when the guard itself could not be written (the review is live
+    but unlocked, reported loudly). A failed posted.json is only a warning: the
+    guard is what stops a double-post. Shared by the normal post and the
+    lost-response recovery, so the two write the same marker the same way."""
+    RUN_DIR.mkdir(exist_ok=True)
+    try:
+        shutil.copyfile(REVIEW, POSTED_MD)
+    except OSError as e:
+        log(f"POSTED OK ({review_url}) but could not write the marker "
+            f"{POSTED_MD}: {e}. The review is live; do NOT re-run — create "
+            f"{POSTED_MD} by hand to lock it.")
+        return 1
+    try:
+        POSTED_JSON.write_text(json.dumps(record, ensure_ascii=False, indent=2))
+    except OSError as e:
+        log(f"warning — posted.json not written ({e}), but the posted.md "
+            f"marker is set (no double-post risk). Review: {review_url}")
+    return 0
+
+
 # --- main ---------------------------------------------------------------------
 
 def main(argv: list[str]) -> int:
@@ -587,7 +641,8 @@ def main(argv: list[str]) -> int:
     body = linkify_prose(body, nwo, head)  # lint-clean now: the body always posts
     comments, fold_groups = route(sections, nwo, head)
 
-    body_text = assemble_body(body, fold_groups)
+    our_body = assemble_body(body, fold_groups)  # what we assembled, before any draft
+    body_text = our_body
     fold_count = sum(len(items) for _, _, items in fold_groups)
 
     # The pending review's draft body (summary text typed but not submitted)
@@ -621,6 +676,12 @@ def main(argv: list[str]) -> int:
     recap = format_recap(sections, comments, fold_count, event, imported,
                          bool(draft_body), moved=moved)
 
+    # The lost-response guard: a prior run may have posted this review and lost the
+    # response before writing the marker (a dropped connection reads as a failure).
+    # A review of ours already carrying this body is that post — recover rather than
+    # post a second copy. Read-only, so it runs in a dry run too (as a note).
+    prior = find_prior_post(nwo, pr_id, our_body, whoami())
+
     if dry_run:
         print(json.dumps(payload, indent=2, ensure_ascii=False))
         sys.stderr.write(recap)
@@ -628,10 +689,23 @@ def main(argv: list[str]) -> int:
             log(f"a pending review of yours exists on PR #{pr_id}; "
                 "finalizing will fold it in as shown and delete it from GitHub "
                 f"(fetched copy: {PENDING_IMPORT}).")
+        if prior is not None:
+            log(f"note: a review of yours already carries this body "
+                f"({prior.get('html_url', '')}); a real run would treat this as an "
+                "already-completed post and write the marker instead of re-posting.")
         log("dry run — nothing posted.")
         return 0
 
     sys.stderr.write(recap)
+
+    if prior is not None:
+        url = prior.get("html_url", "")
+        log(f"a review of yours already carries this body — a prior post whose "
+            f"response was lost: {url}. Nothing re-posted; writing the marker.")
+        return mark_posted(url, {"recovered": True, "review_url": url,
+                                 "review_id": prior.get("id"),
+                                 "heads": {"reviewed": head, "local": local_head,
+                                           "pr": live_head}})
 
     # No separate moved-head gate. Pinning makes a moved head safe by construction
     # (outdated, never misplaced), so the WARNING banner up top and the recap's
@@ -714,26 +788,14 @@ def main(argv: list[str]) -> int:
 
     # Archive AND mark, marker first: posted.md is both the as-posted snapshot and
     # the guard, so writing it first closes the double-post window as early as
-    # possible. A failure after a successful post is reported loudly.
-    RUN_DIR.mkdir(exist_ok=True)
-    try:
-        shutil.copyfile(REVIEW, POSTED_MD)
-    except OSError as e:
-        log(f"POSTED OK ({review_url}) but could not write the marker "
-            f"{POSTED_MD}: {e}. The review is live; do NOT re-run — create "
-            f"{POSTED_MD} by hand to lock it.")
-        return 1
-    try:
-        POSTED_JSON.write_text(json.dumps(
-            {"payload": payload, "response": response,
-             # Post-mortem only: records that the heads had parted at post time
-             # (which comments GitHub will have marked outdated) — nothing else on
-             # disk captures it.
-             "heads": {"reviewed": head, "local": local_head, "pr": live_head}},
-            ensure_ascii=False, indent=2))
-    except OSError as e:
-        log(f"warning — posted.json not written ({e}), but the posted.md "
-            f"marker is set (no double-post risk). Review: {review_url}")
+    # possible. A failure after a successful post is reported loudly. The heads are
+    # recorded post-mortem only — which comments GitHub will have marked outdated;
+    # nothing else on disk captures that they had parted.
+    rc = mark_posted(review_url, {
+        "payload": payload, "response": response,
+        "heads": {"reviewed": head, "local": local_head, "pr": live_head}})
+    if rc:
+        return rc
 
     log(f"posted: {review_url}")
 
