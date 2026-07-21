@@ -221,11 +221,15 @@ def route(sections: list[Section], nwo: str, head: str
             prose = linkify_prose(b.prose, nwo, head)
 
             # Sections 1 & 2, located: inline. lint has confirmed both endpoints
-            # are in the diff, so the all-or-nothing post cannot 422 here.
+            # are in the diff, so neither the create-review POST nor the pinned add
+            # can fail to place it. review_line is internal — the finding's ### line
+            # in REVIEW.md, carried so a refusal can point the curator back at it,
+            # and stripped before the payload (it is not an API field).
             loc = b.location()
             if loc is not None and s.ordinal in (1, 2):
                 path, start, end = loc
-                comment: dict[str, Any] = {"path": path, "body": prose, "line": end, "side": "RIGHT"}
+                comment: dict[str, Any] = {"path": path, "body": prose, "line": end,
+                                           "side": "RIGHT", "review_line": b.head_line}
                 if end > start:
                     comment["start_line"] = start
                     comment["start_side"] = "RIGHT"
@@ -510,19 +514,21 @@ _ADD_COMMENT = (
     "commitOID:$commitOID,position:$position}){comment{databaseId}}}")
 
 
-def graphql(query: str, variables: dict[str, Any], what: str) -> dict[str, Any]:
+def graphql(query: str, variables: dict[str, Any], what: str,
+            recovery: str = "") -> dict[str, Any]:
     """Run a GraphQL request via gh, returning its `data`. Dies with `what` on a
-    transport error or a GraphQL `errors` array (a 200 with errors is a failure)."""
+    transport error or a GraphQL `errors` array (a 200 with errors is a failure);
+    `recovery`, if given, is appended to the failure message (e.g. how to resume)."""
     p = run("gh", "api", "graphql", "--input", "-",
             stdin=json.dumps({"query": query, "variables": variables}))
     if p.returncode != 0:
-        die(f"{what} failed: {p.stderr.strip() or 'gh error'}")
+        die(f"{what} failed: {p.stderr.strip() or 'gh error'}.{recovery}")
     try:
         out = json.loads(p.stdout)
     except ValueError:
-        die(f"{what} failed: unparseable response:\n{p.stdout}")
+        die(f"{what} failed: unparseable response:\n{p.stdout}{recovery}")
     if out.get("errors"):
-        die(f"{what} failed: {json.dumps(out['errors'])}")
+        die(f"{what} failed: {json.dumps(out['errors'])}.{recovery}")
     return out.get("data") or {}
 
 
@@ -564,21 +570,25 @@ def post_augment(nwo: str, pr_id: str, pending: dict[str, Any],
     if pinned:
         ranged = [c for c in comments if c.get("start_line") is not None]
         if ranged:
-            listing = "\n".join(f"  - {c['path']}:{c['start_line']}-{c['line']}" for c in ranged)
+            listing = "\n".join(
+                f"  - REVIEW.md:{c.get('review_line', '?')}  —  "
+                f"{c['path']} L{c['start_line']}-L{c['line']}" for c in ranged)
             die("your pending review is anchored at a commit other than the reviewed "
-                "head, so each finding added to it must be pinned single-line — but "
+                "head, so each finding added to it must be pinned to a single line — but "
                 f"these checked finding(s) span a line range:\n{listing}\n"
-                "Pinning would drop the range (and corrupt any multi-line suggestion), "
-                "so nothing was posted. Fix by either: submit or discard your pending "
-                f"review on https://github.com/{nwo}/pull/{pr_id} and re-run (the review "
-                "then posts whole, range and pin both), or narrow each to a single line "
-                "in REVIEW.md and re-run.")
+                "Pin your comments on a single line, if possible; alternatively, submit or "
+                f"discard your pending review on https://github.com/{nwo}/pull/{pr_id}. "
+                "Then run pr-finalize again.\n"
+                "Nothing was posted.")
 
     present = {comment_key(c.get("original_commit_id"), c.get("path"),
                            c.get("original_position"), c.get("body") or "") for c in existing}
     added = skipped = 0
     for c in comments:
-        where = f"{c['path']}:{c['line']}"
+        # Identify a finding by its clickable REVIEW.md line first (the VS Code
+        # terminal linkifies it), then its code location — so any failure below
+        # points the curator straight back at the block to fix.
+        where = f"REVIEW.md:{c.get('review_line', '?')} ({c['path']}:{c['line']})"
         # Position both keys the finding (against the pending comments above) and,
         # on the pinned path, places the add. lint has already put every inline
         # finding in the diff, so it resolves — but a None only weakens the key to
@@ -587,6 +597,9 @@ def post_augment(nwo: str, pr_id: str, pending: dict[str, Any],
         if comment_key(head, c["path"], pos, c["body"]) in present:
             skipped += 1
             continue
+        # A failed add leaves the earlier ones in the pending review; reconciliation
+        # skips them next time, so a re-run resumes rather than doubles.
+        resume = " Run pr-finalize again to resume."
         if pinned:
             if pos is None:
                 die(f"could not place {where} in the reviewed diff, so it cannot be "
@@ -594,13 +607,13 @@ def post_augment(nwo: str, pr_id: str, pending: dict[str, Any],
                     f"review is intact. Re-prepare if the diff is stale: pr-review {pr_id}.")
             graphql(_ADD_COMMENT, {"rid": review_node, "path": c["path"], "body": c["body"],
                                    "commitOID": head, "position": pos},
-                    what=f"adding {where} to your pending review")
+                    what=f"adding {where} to your pending review", recovery=resume)
         else:
             graphql(_ADD_THREAD, {"rid": review_node, "path": c["path"], "body": c["body"],
                                   "line": c["line"], "side": c.get("side", "RIGHT"),
                                   "startLine": c.get("start_line"),
                                   "startSide": c.get("start_side") if c.get("start_line") else None},
-                    what=f"adding {where} to your pending review")
+                    what=f"adding {where} to your pending review", recovery=resume)
         added += 1
     log(f"added {added} finding(s) to your pending review"
         + (f", skipped {skipped} already present" if skipped else "") + ".")
@@ -776,7 +789,11 @@ def main(argv: list[str]) -> int:
     # showing it against the code as reviewed: outdated, never misplaced. When
     # the head has not moved this is the latest commit anyway, so it is a no-op.
     # (The pinned-augment path pins per comment instead; see post_augment.)
-    payload = {"body": body_text, "event": event, "commit_id": head, "comments": comments}
+    # review_line is internal bookkeeping (a REVIEW.md line, see route); strip it —
+    # it is not a create-review comment field. post_augment reads it off `comments`
+    # directly, so only this payload copy needs the projection.
+    api_comments = [{k: v for k, v in c.items() if k != "review_line"} for c in comments]
+    payload = {"body": body_text, "event": event, "commit_id": head, "comments": api_comments}
     recap = format_recap(sections, comments, fold_count, event, pending_comments,
                          bool(draft_body), moved=moved)
 
