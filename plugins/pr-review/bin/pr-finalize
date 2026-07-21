@@ -46,10 +46,21 @@ GitHub requires a REQUEST_CHANGES review to carry a body OR comments (verified
 empirically; the docs' "body is required" wording overstates it), and every
 REQUEST_CHANGES this tool sends carries one or the other by construction.
 
-No inline comment is ever out-of-diff, so the all-or-nothing post is safe by
-construction. The hard refusals are a moved PR head, an already-posted
-preparation, and a pending review carrying replies or file-level comments (see
-below).
+The review posts pinned to the reviewed commit, not the PR head: the create-review
+POST sets commit_id to the reviewed head, so every inline anchor resolves against
+the diff the review was written for. When the head has since moved, GitHub marks
+the affected comments outdated — shown against the code as reviewed — rather than
+relocating them onto whatever now sits at those line numbers. So a moved head is
+reported, never refused: a curator who fixed a run of typos themselves, or
+restructured something faster than it could be explained, keeps the curation. The
+report is a WARNING banner naming all three heads — reviewed, local, PR — and what
+moved; local commits the PR head does not carry are offered a push first,
+fast-forward only, since a plain `git push` refuses anything else and so cannot
+rewrite the contributor's branch. Permalinks are pinned to the reviewed head too,
+and a blob is immutable.
+
+The hard refusals are an already-posted preparation and a pending review
+carrying replies or file-level comments (see below).
 
 The curator's own pending GitHub review (the "Start a review" flow) would 422
 that POST — GitHub allows one pending review per user per PR. Instead of
@@ -249,11 +260,13 @@ def assemble_body(body: str, fold_groups: list[tuple[str, str, list[str]]]) -> s
 
 
 def format_recap(sections: list[Section], comments: list[dict[str, Any]], fold_count: int,
-                 event: str, imported: list[dict[str, Any]], has_draft: bool) -> str:
+                 event: str, imported: list[dict[str, Any]], has_draft: bool,
+                 *, moved: bool) -> str:
     """Human-readable curation recap printed before the prompt: per-section
-    checked/unchecked/total, the pending-review import when there is one, then
-    the verdict about to be posted. A section that shows 0 checked is the cue
-    for a REVIEW.md that was never read to the end."""
+    checked/unchecked/total, the pending-review import when there is one, a
+    reminder when the PR head has moved, then the verdict about to be posted. A
+    section that shows 0 checked is the cue for a REVIEW.md that was never read
+    to the end."""
     lines = [f"{PROG}: REVIEW.md recap"]
     width = max((len(s.label) for s in sections), default=0)
     for s in sections:
@@ -266,6 +279,10 @@ def format_recap(sections: list[Section], comments: list[dict[str, Any]], fold_c
         lines.append(f"  + pending review: {len(imported)} comment(s) to import — {paths}")
     if has_draft:
         lines.append("  + pending review: draft body appended to the review body")
+    if moved:
+        lines.append(f"  ! PR head moved since the review — {len(comments)} inline "
+                     "comment(s) post at the reviewed commit (outdated where newer "
+                     "commits touched those lines)")
     if event == "APPROVE":
         lines.append("  → verdict: APPROVE (no findings checked)")
     else:
@@ -352,6 +369,100 @@ def confirm(prompt: str) -> bool:
             "Run pr-finalize from a shell, or use --dry-run to preview.")
 
 
+# --- the git position -----------------------------------------------------------
+
+def have_commit(sha: str) -> bool:
+    """True when sha names a commit object in this repository."""
+    return run("git", "cat-file", "-e", f"{sha}^{{commit}}").returncode == 0
+
+
+def is_ancestor(base: str, tip: str) -> bool:
+    """True when base is an ancestor of tip. Both must be local objects."""
+    return run("git", "merge-base", "--is-ancestor", base, tip).returncode == 0
+
+
+def count_commits(base: str, tip: str) -> int:
+    """How many commits tip carries that base does not; 0 when either is unknown."""
+    if not (have_commit(base) and have_commit(tip)):
+        return 0
+    p = run("git", "rev-list", "--count", f"{base}..{tip}")
+    return int(p.stdout.strip()) if p.returncode == 0 else 0
+
+
+def relation(base: str, other: str) -> str:
+    """Where other sits relative to base, as the short annotation the banner prints.
+
+    A head this checkout does not have — usually one the author pushed — cannot
+    be placed, and is named as moved rather than guessed at. Nothing here
+    fetches: writing to the repository is preparation's job."""
+    if other == base:
+        return "unchanged"
+    if not (have_commit(base) and have_commit(other)):
+        return "moved (not in this checkout)"
+    if is_ancestor(base, other):
+        return f"{count_commits(base, other)} commit(s) ahead"
+    if is_ancestor(other, base):
+        return f"{count_commits(other, base)} commit(s) behind"
+    return "diverged"
+
+
+def format_position(reviewed: str, local: str, live: str) -> str:
+    """The three heads as a banner block, printed when they no longer agree.
+
+    Preparation left all three equal — it force-pushed the rebased branch and
+    recorded the result — so a disagreement is news, and the banner says which
+    way. It shouts because it lands in a wall of progress output on the way to a
+    prompt, and a curator who skims past it posts anchors that have drifted."""
+    lines = [f"{PROG}: *** WARNING: GIT POSITION MISMATCH ***",
+             f"  reviewed head  {reviewed[:12]}  — what REVIEW.md's findings point at",
+             f"  local HEAD     {local[:12]}  — {relation(reviewed, local)}",
+             f"  PR head        {live[:12]}  — {relation(reviewed, live)}, on GitHub"]
+    if live == reviewed:
+        lines.append("  The PR head still matches the review; nothing has moved.")
+    else:
+        lines.append("  The review posts pinned to the reviewed commit, so its comments show")
+        lines.append("  against the code as reviewed — GitHub marks them outdated where later")
+        lines.append("  commits changed those lines, never onto different code. But the review")
+        lines.append("  now describes code the PR has moved past: post it, or re-prepare fresh.")
+    return "\n".join(lines) + "\n"
+
+
+def offer_push(pr_id: str, local: str, live: str, *, dry_run: bool) -> str:
+    """Offer to push the local commits the PR head does not carry; return the PR head.
+
+    Fast-forward only, and structurally so: the caller has established that the
+    PR head is an ancestor of the local HEAD, and a plain `git push` refuses
+    anything else — rewriting the contributor's branch belongs to preparation,
+    which takes a lease for it. Returns local once pushed and live otherwise;
+    declining is not an error, it only leaves the curator's own fixes invisible
+    to the author."""
+    ahead = count_commits(live, local)
+    remote = run("git", "config", f"branch.pr/{pr_id}.remote").stdout.strip()
+    ref = run("git", "config", f"branch.pr/{pr_id}.merge").stdout.strip()
+    if not remote or not ref:
+        log(f"{ahead} local commit(s) are not on the PR head, but branch pr/{pr_id} has no "
+            "push destination in its config — no push offered.")
+        return live
+    if dry_run:
+        log(f"{ahead} local commit(s) are not on the PR head; a real run would offer to "
+            f"push them to {remote} ({ref}).")
+        return live
+    if not confirm(f"{PROG}: push your {ahead} local commit(s) to {remote} ({ref}) "
+                   "before posting? [y/N] "):
+        log("not pushed. The author will not see those commits, and any finding you "
+            "fixed in them still reads as unfixed.")
+        return live
+    # The explicit sha, not HEAD: this function reports and returns `local`, so
+    # pushing anything else would let the two part company silently.
+    p = run("git", "push", remote, f"{local}:{ref}")
+    if p.returncode != 0:
+        die(f"pushing to {remote} ({ref}) failed: {p.stderr.strip() or 'git error'}. "
+            "Nothing posted. Only a fast-forward is attempted here, so a PR head rewritten "
+            f"meanwhile stops it — re-prepare in that case: pr-review {pr_id}.")
+    log(f"pushed — the PR head is now {local[:12]}.")
+    return local
+
+
 # --- main ---------------------------------------------------------------------
 
 def main(argv: list[str]) -> int:
@@ -415,14 +526,23 @@ def main(argv: list[str]) -> int:
         die("gh returned no repository name; is a default repo set?")
     log(f"PR #{pr_id} — https://github.com/{nwo}/pull/{pr_id}")
 
-    # Live head check: the reviewed head must still be the PR head, or every line
-    # number and permalink the review wrote points at the wrong code.
+    # The git position. Preparation left the reviewed head, the local HEAD and the
+    # PR head equal; the author pushing, or the curator fixing something mid-review,
+    # parts them. Neither is a reason to discard a finished curation, so a mismatch
+    # is reported here and confirmed below — never refused.
+    local_head = git("rev-parse", "HEAD", what="reading the local HEAD")
     live_head = gh("pr", "view", pr_id, "--json", "headRefOid", "--jq", ".headRefOid",
                    what=f"reading PR #{pr_id} head").strip()
-    if live_head != head:
-        die(f"PR #{pr_id} moved since preparation (GitHub head {live_head[:12]}, "
-            f"reviewed head {head[:12]}). The review's anchors no longer match. "
-            f"Re-prepare and re-review: pr-review {pr_id}.")
+    if live_head != head or local_head != head:
+        sys.stderr.write(format_position(head, local_head, live_head))
+        # Unpushed local commits: the author cannot see them, and any finding they
+        # already fix still reads as unfixed. Offered only as a fast-forward.
+        if (local_head != live_head and have_commit(live_head)
+                and is_ancestor(live_head, local_head)):
+            live_head = offer_push(pr_id, local_head, live_head, dry_run=dry_run)
+    # Only the PR head decides where an inline comment lands; a local HEAD that ran
+    # ahead is worth reporting, but costs the post nothing.
+    moved = live_head != head
 
     # The curator's own pending review (GitHub's "Start a review" flow) blocks
     # the POST below — one pending review per user per PR — so detect it now
@@ -456,8 +576,9 @@ def main(argv: list[str]) -> int:
     # before building or posting anything: parse_review and the lint pass in
     # pr_review_lint collect every fault, so a curator sees every misfiled
     # finding, unlabeled section and malformed link at once rather than one
-    # re-run per fault. Runs after the live-head check above, so no line number
-    # it reports is stale; routing below may then assume a valid tree.
+    # re-run per fault. It lints against the preparation's canonical diff — the
+    # surface the review was written for — so a head that moved since does not
+    # change what it reports; routing below may then assume a valid tree.
     problems: list[Problem] = []
     body, body_line, sections = parse_review(REVIEW.read_text(), problems)
     lint(body, body_line, sections, ranges, problems)
@@ -487,9 +608,18 @@ def main(argv: list[str]) -> int:
     # wording overstates it), and REQUEST_CHANGES here implies comments,
     # fold_count, or imported — and any folded finding makes the body
     # non-empty — so every request this sends is legal by construction.
-    payload = {"body": body_text, "event": event, "comments": comments + imported}
+    #
+    # commit_id pins the review to the reviewed head. Without it GitHub defaults
+    # to the PR's latest commit and resolves every anchor against the diff as it
+    # is now — so once the head moved, a comment computed against the reviewed
+    # diff would land on whatever now sits at that line number. Pinned, GitHub
+    # instead marks a comment outdated where a later commit changed its line,
+    # showing it against the code as reviewed: outdated, never misplaced. When
+    # the head has not moved this is the latest commit anyway, so it is a no-op.
+    payload = {"body": body_text, "event": event, "commit_id": head,
+               "comments": comments + imported}
     recap = format_recap(sections, comments, fold_count, event, imported,
-                         bool(draft_body))
+                         bool(draft_body), moved=moved)
 
     if dry_run:
         print(json.dumps(payload, indent=2, ensure_ascii=False))
@@ -502,6 +632,11 @@ def main(argv: list[str]) -> int:
         return 0
 
     sys.stderr.write(recap)
+
+    # No separate moved-head gate. Pinning makes a moved head safe by construction
+    # (outdated, never misplaced), so the WARNING banner up top and the recap's
+    # moved line are notice, not a risk to clear — the ordinary post confirmation
+    # below is the one decision, and it fires whether or not the head moved.
 
     # The import gate. There is no "post without importing": the POST cannot
     # succeed while the pending review exists, so the choices are import or
@@ -550,10 +685,16 @@ def main(argv: list[str]) -> int:
 
     # Post one review object. The base repo (nwo) holds the PR and its diff; for
     # an open PR the head commit is reachable there, fork or not. Not the gh()
-    # helper: past the DELETE above a failure must point at the recovery copy.
+    # helper: past the DELETE above a failure must point at the recovery copy —
+    # and, when the head moved, name the likeliest cause rather than leaving a
+    # bare 422 to be decoded.
     recovery = ("" if pending is None else
                 " Your pending review was already deleted from GitHub; its "
                 f"fetched copy survives in {PENDING_IMPORT}.")
+    if moved:
+        recovery += (f" The review is pinned to the reviewed commit {head[:12]}; if a "
+                     "force-push has since dropped it from the PR, GitHub rejects the pin. "
+                     f"Re-prepare in that case: pr-review {pr_id}.")
     p = run("gh", "api", "--method", "POST",
             f"repos/{nwo}/pulls/{pr_id}/reviews", "--input", "-",
             stdin=json.dumps(payload))
@@ -583,8 +724,13 @@ def main(argv: list[str]) -> int:
             f"{POSTED_MD} by hand to lock it.")
         return 1
     try:
-        POSTED_JSON.write_text(json.dumps({"payload": payload, "response": response},
-                                          ensure_ascii=False, indent=2))
+        POSTED_JSON.write_text(json.dumps(
+            {"payload": payload, "response": response,
+             # Post-mortem only: records that the heads had parted at post time
+             # (which comments GitHub will have marked outdated) — nothing else on
+             # disk captures it.
+             "heads": {"reviewed": head, "local": local_head, "pr": live_head}},
+            ensure_ascii=False, indent=2))
     except OSError as e:
         log(f"warning — posted.json not written ({e}), but the posted.md "
             f"marker is set (no double-post risk). Review: {review_url}")

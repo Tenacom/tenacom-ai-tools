@@ -13,6 +13,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changes to existing features
 
+- **`pr-finalize` no longer refuses to post when the pull request head has moved.**
+  It prints a `*** WARNING: GIT POSITION MISMATCH ***` banner naming the three commits it compares — the reviewed head, your local `HEAD`, and the pull request head on GitHub — and says which one moved.
+  Fixing something yourself during a review no longer costs you the curation.
+
+- **Inline comments now post pinned to the reviewed commit.**
+  A review posted after the head moved used to risk landing a comment on the wrong line; now GitHub marks such a comment _outdated_ against the code as it was reviewed instead of relocating it. Permalinks were already pinned this way.
+
+- **`pr-finalize` offers to push local commits the pull request head does not carry.**
+  Only as a fast-forward, never a force-push. Decline and it posts anyway.
+
 ### Bugs fixed in this release
 
 - **No more warnings about the unknown `MultiEdit` tool.**
